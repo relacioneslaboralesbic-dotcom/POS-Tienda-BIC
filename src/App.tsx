@@ -123,6 +123,7 @@ const App = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [selectedOrderForTicket, setSelectedOrderForTicket] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
@@ -152,7 +153,7 @@ const App = () => {
           stock: parseInt(p.stock) || 0,    
           category: p.categoria,
           color: COLORS.bicOrange,
-          image: null
+          image: p.image || null
         }));
         setProducts(formatted);
         setIsLoading(false);
@@ -304,12 +305,55 @@ const App = () => {
     reader.readAsText(file);
   };
 
-  const handleImageUpload = (e) => {
+  // --- Integración Segura con Cloudinary API ---
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result);
-      reader.readAsDataURL(file); 
+    if (!file) return;
+
+    // Mostrar preview local inmediatamente
+    const reader = new FileReader();
+    reader.onloadend = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file); 
+
+    setIsUploadingImage(true);
+    notify("Subiendo imagen a la nube...", "success");
+
+    try {
+      const cloudName = 'dvrluet68';
+      const apiKey = '454519176479577';
+      const apiSecret = 'O5Jui-cALz43axjlFOkAL4FJ4HU';
+      const timestamp = Math.round((new Date).getTime() / 1000);
+
+      // Generar firma SHA-1 (Requisito de seguridad de Cloudinary)
+      const str = `timestamp=${timestamp}${apiSecret}`;
+      const buffer = new TextEncoder().encode(str);
+      const hashBuffer = await crypto.subtle.digest('SHA-1', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const signature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('api_key', apiKey);
+      formData.append('timestamp', timestamp);
+      formData.append('signature', signature);
+
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      
+      if (data.secure_url) {
+        setImagePreview(data.secure_url);
+        notify("Imagen guardada exitosamente", "success");
+      } else {
+        throw new Error("Respuesta inválida de Cloudinary");
+      }
+    } catch (error) {
+      console.error(error);
+      notify("Error al subir la imagen", "error");
+    } finally {
+      setIsUploadingImage(false);
     }
   };
 
@@ -424,8 +468,10 @@ const App = () => {
   };
 
   // Administrador gestiona inventario
-  const saveProduct = (e) => {
+  const saveProduct = async (e) => {
     e.preventDefault();
+    if (isUploadingImage) return; // Prevenir guardado si la imagen está subiéndose
+
     const formData = new FormData(e.target);
     const productData = {
       id: editingProduct ? editingProduct.id : Date.now(),
@@ -437,11 +483,13 @@ const App = () => {
       color: editingProduct ? editingProduct.color : COLORS.bicOrange,
       image: imagePreview
     };
+
     if (editingProduct) {
       setProducts(products.map(p => p.id === editingProduct.id ? productData : p));
     } else {
       setProducts([...products, productData]);
     }
+
     setIsModalOpen(false);
     setEditingProduct(null);
     setImagePreview(null);
@@ -643,144 +691,178 @@ const App = () => {
   // ==========================================
   // RENDER: PANTALLAS DE ACCESO (SELECCIÓN / LOGIN)
   // ==========================================
-  if (appMode === 'selection') {
+  if (appMode.startsWith('selection') || appMode.startsWith('login')) {
     return (
-      <div className="h-screen bg-[#F3EDEC] flex items-center justify-center p-6">
+      <div className="flex h-screen bg-[#F3EDEC]">
         <style>{globalStyles}</style>
         <Toast />
-        <div className="bg-white p-12 rounded-[50px] shadow-2xl w-full max-w-md text-center border-b-[15px] border-[#F89332]">
-          <div className="flex justify-center mb-10"><LogoBIC size="large" /></div>
-          <h2 className="text-xl font-black mb-8 uppercase tracking-tighter text-gray-400 italic">Portal Tiendita BIC</h2>
-          <div className="space-y-4">
-            <button 
-              onClick={() => { setAppMode('login_employee'); resetUI(); }}
-              className="w-full p-6 bg-[#035AE5] text-white rounded-3xl font-black uppercase text-xs flex justify-between items-center shadow-lg hover:scale-[1.02] transition-all"
-            >
-              Empleado BIC <ArrowLeft className="rotate-180" />
+        
+        {/* Lado Izquierdo - Diseño visual estilo SaaS */}
+        <div className="hidden lg:flex flex-col justify-center items-center w-1/2 p-12 relative overflow-hidden" style={{ backgroundColor: COLORS.bladeBlue }}>
+          <div className="relative z-10 w-full max-w-xl">
+            {/* Imagen del Banner (Carga Banner.webp por defecto) */}
+            <img 
+              src="Banner.webp" 
+              alt="Banner Publicitario" 
+              className="w-full h-auto object-contain drop-shadow-2xl rounded-2xl transition-all duration-500 hover:scale-[1.02]"
+              onError={(e) => {
+                // Fallback en caso de que no cargue la imagen local
+                e.target.onerror = null; 
+                e.target.style.display = 'none';
+                e.target.nextSibling.style.display = 'block';
+              }}
+            />
+            {/* Fallback visual (oculto por defecto, se muestra si no hay imagen) */}
+            <div className="hidden bg-white/10 backdrop-blur-md p-12 rounded-3xl border border-white/20 text-center text-white shadow-xl">
+              <h1 className="text-4xl font-bold mb-4 leading-tight">Espacio para Banner</h1>
+              <p className="text-base opacity-80">Sube una imagen llamada <strong>Banner.webp</strong> o <strong>Banner.png</strong> al proyecto para que se muestre aquí automáticamente.</p>
+            </div>
+          </div>
+          {/* Elementos decorativos de fondo */}
+          <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full mix-blend-overlay opacity-20" style={{ backgroundColor: COLORS.bicOrange }}></div>
+          <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full mix-blend-overlay opacity-20" style={{ backgroundColor: COLORS.expressPurple }}></div>
+        </div>
+
+        {/* Lado Derecho - Interacción */}
+        <div className="w-full lg:w-1/2 flex flex-col items-center justify-center p-8 bg-white shadow-[-20px_0_40px_rgba(0,0,0,0.05)] z-20 relative">
+          
+          {appMode !== 'selection' && (
+            <button onClick={() => setAppMode('selection')} className="absolute top-8 left-8 p-2 text-gray-400 hover:text-black transition-colors rounded-lg hover:bg-gray-50 flex items-center gap-2 font-bold text-sm">
+              <ArrowLeft size={18} /> Volver
             </button>
-            <button 
-              onClick={() => { setAppMode('login_admin'); resetUI(); }}
-              className="w-full p-6 bg-[#F89332] text-black rounded-3xl font-black uppercase text-xs flex justify-between items-center shadow-lg hover:scale-[1.02] transition-all"
-            >
-              Administrador <ShieldCheck />
-            </button>
+          )}
+
+          <div className="w-full max-w-md">
+            <div className="flex justify-center mb-10"><LogoBIC size="large" /></div>
+            
+            {/* PANTALLA 1: SELECCIÓN DE PERFIL */}
+            {appMode === 'selection' && (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                <h2 className="text-2xl font-bold text-black text-center mb-8">Selecciona tu Perfil</h2>
+                
+                <button 
+                  onClick={() => { setAppMode('login_employee'); resetUI(); }}
+                  className="w-full bg-white border-2 border-gray-200 p-5 rounded-2xl flex items-center gap-5 hover:border-[#035AE5] hover:shadow-lg transition-all group"
+                >
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-colors group-hover:bg-[#035AE5] group-hover:text-white text-[#035AE5] bg-[#F3EDEC]"><ShoppingBag size={24} /></div>
+                  <div className="text-left flex-1">
+                    <h3 className="text-lg font-bold text-black">Empleado BIC</h3>
+                    <p className="text-sm font-bold text-gray-500">Acceso al Catálogo (Cliente)</p>
+                  </div>
+                </button>
+
+                <button 
+                  onClick={() => { setAppMode('login_admin'); resetUI(); }}
+                  className="w-full border-2 border-transparent p-5 rounded-2xl flex items-center gap-5 shadow-md hover:shadow-xl transition-all"
+                  style={{ backgroundColor: COLORS.bicOrange }}
+                >
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white bg-black/10 backdrop-blur-sm"><ShieldCheck size={24} /></div>
+                  <div className="text-left flex-1">
+                    <h3 className="text-lg font-bold text-black">Administrador</h3>
+                    <p className="text-sm font-bold text-black/70">Gestión de negocio</p>
+                  </div>
+                </button>
+              </div>
+            )}
+
+            {/* PANTALLA 2: LOGIN ADMINISTRADOR */}
+            {appMode === 'login_admin' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <h2 className="text-2xl font-bold text-black text-center mb-6">Acceso Administrador</h2>
+                {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
+                
+                <form onSubmit={handleAdminLogin} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Usuario</label>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                      <input 
+                        type="text" placeholder="admin" required value={username} onChange={e => setUsername(e.target.value)}
+                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Contraseña</label>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                      <input 
+                        type="password" placeholder="admin123" required value={password} onChange={e => setPassword(e.target.value)}
+                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
+                      />
+                    </div>
+                  </div>
+                  <button type="submit" className="w-full py-4 rounded-xl font-bold text-black text-lg mt-6 shadow-md hover:brightness-95 active:scale-[0.98] transition-all" style={{ backgroundColor: COLORS.bicOrange }}>
+                    Entrar al Sistema
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* PANTALLA 3: LOGIN EMPLEADO (CLIENTE) */}
+            {appMode === 'login_employee' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <h2 className="text-2xl font-bold text-black text-center mb-6">Acceso Empleado BIC</h2>
+                {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
+                
+                <form onSubmit={handleEmployeeLogin} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Número de Empleado</label>
+                    <div className="relative">
+                      <BadgeInfo className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                      <input 
+                        type="text" placeholder="Ej. 10452" required value={empNumber} onChange={e => setEmpNumber(e.target.value)}
+                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nombre Completo</label>
+                    <div className="relative">
+                      <UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                      <input 
+                        type="text" placeholder="Ej. Juan Pérez" required value={empName} onChange={e => setEmpName(e.target.value)}
+                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Turno</label>
+                    <div className="relative">
+                      <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                      <select 
+                        required value={empShift} onChange={e => setEmpShift(e.target.value)}
+                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black appearance-none cursor-pointer"
+                      >
+                        <option value="Matutino">Matutino</option>
+                        <option value="Vespertino">Vespertino</option>
+                        <option value="Nocturno">Nocturno</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button type="submit" className="w-full py-4 rounded-xl font-bold text-white text-lg mt-6 shadow-md hover:brightness-110 active:scale-[0.98] transition-all" style={{ backgroundColor: COLORS.bladeBlue }}>
+                    Ingresar al Catálogo
+                  </button>
+                </form>
+              </div>
+            )}
+
           </div>
         </div>
       </div>
     );
   }
 
-  if (appMode.startsWith('login')) {
-    return (
-      <div className="h-screen bg-[#F3EDEC] flex items-center justify-center p-6">
-        <style>{globalStyles}</style>
-        <Toast />
-        <div className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-md">
-          <button onClick={() => setAppMode('selection')} className="mb-8 text-gray-400 font-bold flex items-center gap-2 hover:text-black transition-colors"><ArrowLeft size={16}/> Volver</button>
-          <LogoBIC size="normal" />
-          <h2 className="text-xl font-black mt-6 mb-8 uppercase tracking-tighter">
-            {appMode === 'login_admin' ? 'Identificación Admin' : 'Registro de Datos'}
-          </h2>
-          {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
-          
-          <form onSubmit={appMode === 'login_admin' ? handleAdminLogin : handleEmployeeLogin} className="space-y-4">
-            {appMode === 'login_admin' ? (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Usuario</label>
-                  <div className="relative">
-                    <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input 
-                      type="text" placeholder="admin" required value={username} onChange={e => setUsername(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#F89332] focus:bg-white transition-all font-bold text-black"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Contraseña</label>
-                  <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input 
-                      type="password" placeholder="admin123" required value={password} onChange={e => setPassword(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#F89332] focus:bg-white transition-all font-bold text-black"
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Número de Empleado</label>
-                  <div className="relative">
-                    <BadgeInfo className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input 
-                      type="text" placeholder="Ej. 10452" required value={empNumber} onChange={e => setEmpNumber(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nombre Completo</label>
-                  <div className="relative">
-                    <UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input 
-                      type="text" placeholder="Ej. Juan Pérez" required value={empName} onChange={e => setEmpName(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Turno</label>
-                  <div className="relative">
-                    <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <select 
-                      required value={empShift} onChange={e => setEmpShift(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black appearance-none cursor-pointer"
-                    >
-                      <option value="Matutino">Matutino</option>
-                      <option value="Vespertino">Vespertino</option>
-                      <option value="Nocturno">Nocturno</option>
-                    </select>
-                  </div>
-                </div>
-              </>
-            )}
-            <button type="submit" className={`w-full py-4 mt-6 rounded-xl font-bold shadow-md hover:brightness-110 active:scale-[0.98] transition-all uppercase tracking-widest text-lg ${appMode === 'login_admin' ? 'bg-[#F89332] text-black' : 'bg-[#035AE5] text-white'}`}>
-              Entrar
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   // ==========================================
-  // RENDER: PERFIL EMPLEADO BIC (CLIENTE)
+  // RENDER: PERFIL EMPLEADO BIC (CLIENTE HACIENDO PEDIDO)
   // ==========================================
   if (appMode === 'employee') {
     return (
       <div className="flex flex-col h-screen bg-[#F3EDEC]">
         <style>{globalStyles}</style>
-        <div className="ticket-wrapper">{selectedOrderForTicket && <DeliveryNote order={selectedOrderForTicket} />}</div>
         <Toast />
         
-        {/* Modal de Éxito Limpio */}
-        {showSuccessModal && selectedOrderForTicket && (
-          <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm no-print">
-            <div className="bg-white p-10 rounded-[40px] shadow-2xl max-w-md w-full text-center">
-              <div className="w-20 h-20 bg-green-100 text-[#64BF69] rounded-full flex items-center justify-center mb-6 mx-auto font-black"><CheckCircle size={40} /></div>
-              <h2 className="text-2xl font-black uppercase mb-2">¡PEDIDO ENVIADO!</h2>
-              <p className="text-gray-500 font-bold mb-8 italic text-sm px-4">Guarda tu comprobante para aclaraciones.</p>
-              <div className="space-y-3">
-                <button onClick={() => handleDownloadImage(selectedOrderForTicket)} className="w-full p-5 bg-[#035AE5] text-white rounded-3xl font-black uppercase text-xs flex justify-center gap-3 shadow-lg shadow-blue-500/30 hover:brightness-110 transition-all">
-                  <Download size={18} /> DESCARGAR IMAGEN
-                </button>
-                <button onClick={() => {setShowSuccessModal(false); setSelectedOrderForTicket(null);}} className="w-full p-4 text-gray-400 font-black uppercase text-[10px] hover:text-black transition-all">CERRAR</button>
-              </div>
-            </div>
-          </div>
-        )}
-        
+        {/* Cabecera del Empleado */}
         <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between z-30 shrink-0 shadow-sm">
           <LogoBIC size="small" />
           <div className="flex items-center gap-6">
@@ -798,11 +880,14 @@ const App = () => {
           <main className="flex-1 overflow-hidden">
             <CatalogGrid />
           </main>
+          
+          {/* Panel Lateral Carrito Cliente (Desktop) */}
           <aside className="hidden lg:block w-96 border-l border-gray-200 shadow-[-10px_0_20px_rgba(0,0,0,0.03)] z-20">
              <CartContent onCheckout={handleEmployeeSubmitOrder} btnText="PEDIDO" />
           </aside>
         </div>
         
+        {/* Botón Flotante y Modal Carrito Cliente (Móvil) */}
         <div className="lg:hidden">
           {cart.length > 0 && (
             <button onClick={() => setIsCartOpenMobile(true)} className="fixed bottom-6 right-6 text-black w-16 h-16 rounded-full shadow-2xl flex items-center justify-center z-40 active:scale-90 transition-transform border-4 border-white" style={{ backgroundColor: COLORS.bicOrange }}>
@@ -824,12 +909,29 @@ const App = () => {
             </div>
           )}
         </div>
+
+        {/* Modal de Éxito Limpio */}
+        {showSuccessModal && selectedOrderForTicket && (
+          <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm no-print">
+            <div className="bg-white p-10 rounded-[40px] shadow-2xl max-w-md w-full text-center">
+              <div className="w-20 h-20 bg-green-100 text-[#64BF69] rounded-full flex items-center justify-center mb-6 mx-auto font-black"><CheckCircle size={40} /></div>
+              <h2 className="text-2xl font-black uppercase mb-2">¡PEDIDO ENVIADO!</h2>
+              <p className="text-gray-500 font-bold mb-8 italic text-sm px-4">Guarda tu comprobante para aclaraciones.</p>
+              <div className="space-y-3">
+                <button onClick={() => handleDownloadImage(selectedOrderForTicket)} className="w-full p-5 bg-[#035AE5] text-white rounded-3xl font-black uppercase text-xs flex justify-center gap-3 shadow-lg shadow-blue-500/30 hover:brightness-110 transition-all">
+                  <Download size={18} /> DESCARGAR IMAGEN
+                </button>
+                <button onClick={() => {setShowSuccessModal(false); setSelectedOrderForTicket(null);}} className="w-full p-4 text-gray-400 font-black uppercase text-[10px] hover:text-black transition-all">CERRAR</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   // ==========================================
-  // RENDER: SISTEMA ADMINISTRADOR
+  // RENDER: SISTEMA ADMINISTRADOR (PULPOS STYLE)
   // ==========================================
   const SidebarItem = ({ icon, label, id, badge }) => {
     const isActive = adminView === id;
@@ -838,11 +940,11 @@ const App = () => {
         onClick={() => setAdminView(id)}
         className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold text-sm ${
           isActive 
-            ? `bg-[#035AE5]/10 text-[#035AE5]` 
+            ? `bg-[${COLORS.bladeBlue}]/10 text-[${COLORS.bladeBlue}]` 
             : 'text-gray-500 hover:bg-gray-50 hover:text-black'
         }`}
       >
-        <span className={isActive ? `text-[#035AE5]` : ''}>{icon}</span>
+        <span className={isActive ? `text-[${COLORS.bladeBlue}]` : ''}>{icon}</span>
         <span className="hidden lg:block flex-1 text-left">{label}</span>
         {badge > 0 && (
           <span className="bg-[#DB054B] text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{badge}</span>
@@ -854,9 +956,9 @@ const App = () => {
   return (
     <div className="flex h-screen bg-[#F3EDEC]">
       <style>{globalStyles}</style>
-      <div className="ticket-wrapper">{selectedOrderForTicket && <DeliveryNote order={selectedOrderForTicket} />}</div>
       <Toast />
 
+      {/* BARRA LATERAL (Sidebar Desktop) */}
       <aside className="hidden md:flex w-20 lg:w-64 bg-white border-r border-gray-200 flex-col z-30 shadow-[5px_0_20px_rgba(0,0,0,0.02)] transition-all duration-300">
         <div className="h-16 flex items-center justify-center lg:justify-start lg:px-6 border-b border-gray-100 shrink-0">
           <div className="lg:hidden"><LogoBIC size="small" showText={false} /></div>
@@ -883,7 +985,9 @@ const App = () => {
         </div>
       </aside>
 
+      {/* CONTENIDO PRINCIPAL (ADMIN) */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        {/* Header Mobile (Solo visible si no hay sidebar lg) */}
         <header className="md:hidden h-16 bg-white border-b border-gray-200 px-4 flex items-center justify-between shrink-0 z-30">
           <LogoBIC size="small" />
           <button onClick={handleLogout} className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center text-red-500 font-bold"><LogOut size={14}/></button>
@@ -892,18 +996,23 @@ const App = () => {
         <div className="flex flex-1 overflow-hidden">
           <main className="flex-1 overflow-y-auto">
             
+            {/* VISTA: DASHBOARD */}
             {adminView === 'dashboard' && (
               <div className="p-6 lg:p-10 space-y-6">
                 <h2 className="text-2xl font-bold text-black mb-6">Resumen del Día</h2>
+                
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Tarjeta 1 */}
                   <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                     <div className="flex justify-between items-start mb-4">
-                      <div className={`p-3 rounded-xl bg-[#035AE5]/10 text-[#035AE5]`}><TrendingUp size={24} /></div>
+                      <div className={`p-3 rounded-xl bg-[${COLORS.bladeBlue}]/10 text-[${COLORS.bladeBlue}]`}><TrendingUp size={24} /></div>
                       <span className="text-xs font-bold text-[#64BF69] bg-[#64BF69]/10 px-2 py-1 rounded-md">+12% hoy</span>
                     </div>
                     <p className="text-sm font-bold text-gray-400">Ventas Aprobadas</p>
                     <h3 className="text-3xl font-black text-black mt-1">${sales.reduce((acc, s) => acc + s.total, 0).toFixed(2)}</h3>
                   </div>
+
+                  {/* Tarjeta 2 */}
                   <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                     <div className="flex justify-between items-start mb-4">
                       <div className="p-3 rounded-xl bg-[#F89332]/10 text-[#F89332]"><Package size={24} /></div>
@@ -911,6 +1020,8 @@ const App = () => {
                     <p className="text-sm font-bold text-gray-400">Artículos en Stock</p>
                     <h3 className="text-3xl font-black text-black mt-1">{products.reduce((acc, p) => acc + p.stock, 0)}</h3>
                   </div>
+
+                  {/* Tarjeta 3 */}
                   <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                      <div className="flex justify-between items-start mb-4">
                       <div className="p-3 rounded-xl bg-[#DB054B]/10 text-[#DB054B]"><List size={24} /></div>
@@ -920,6 +1031,7 @@ const App = () => {
                     <h3 className="text-3xl font-black text-black mt-1">{pendingOrders.length}</h3>
                   </div>
                 </div>
+
                 <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm mt-6">
                   <h3 className="font-bold text-black mb-4">Últimas Aprobaciones</h3>
                   {sales.length === 0 ? (
@@ -944,6 +1056,7 @@ const App = () => {
               </div>
             )}
 
+            {/* VISTA: INVENTARIO */}
             {adminView === 'inventory' && (
               <div className="p-6 lg:p-10">
                 <div className="flex justify-between items-center mb-8">
@@ -1004,6 +1117,7 @@ const App = () => {
               </div>
             )}
 
+            {/* VISTA: PEDIDOS APROBACIÓN */}
             {adminView === 'orders' && (
               <div className="p-6 lg:p-10">
                 <h2 className="text-2xl font-bold text-black mb-8 flex items-center gap-3">
@@ -1054,6 +1168,7 @@ const App = () => {
               </div>
             )}
 
+            {/* VISTA: HISTORIAL */}
             {adminView === 'history' && (
               <div className="p-6 lg:p-10">
                 <div className="flex justify-between items-center mb-8">
@@ -1137,9 +1252,9 @@ const App = () => {
                   {imagePreview ? <img src={imagePreview} className="w-full h-full object-cover" alt="Preview" /> : <ImageIcon className="text-gray-300" size={28} />}
                 </div>
                 <div className="flex-1">
-                  <label className="text-black bg-white border border-gray-200 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer shadow-sm w-full hover:bg-gray-50 transition-colors">
-                    <Upload size={16} /> Subir Imagen
-                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                  <label className={`text-black bg-white border border-gray-200 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer shadow-sm w-full transition-colors ${isUploadingImage ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}>
+                    <Upload size={16} /> {isUploadingImage ? 'Subiendo...' : 'Subir Imagen'}
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" disabled={isUploadingImage} />
                   </label>
                   <p className="text-[10px] text-gray-400 mt-2 font-bold px-1 uppercase tracking-wide">Formatos soportados: JPG, PNG.</p>
                 </div>
@@ -1176,14 +1291,15 @@ const App = () => {
               </div>
               
               <div className="pt-4">
-                <button type="submit" className="w-full text-black py-4 rounded-xl font-bold shadow-md hover:brightness-95 active:scale-[0.98] transition-all flex items-center justify-center gap-2" style={{ backgroundColor: COLORS.bicOrange }}>
-                  <Save size={18} /> {editingProduct ? 'Guardar Cambios' : 'Crear Producto'}
+                <button type="submit" disabled={isUploadingImage} className={`w-full text-black py-4 rounded-xl font-bold shadow-md transition-all flex items-center justify-center gap-2 ${isUploadingImage ? 'opacity-50 cursor-not-allowed' : 'hover:brightness-95 active:scale-[0.98]'}`} style={{ backgroundColor: COLORS.bicOrange }}>
+                  <Save size={18} /> {isUploadingImage ? 'Subiendo...' : (editingProduct ? 'Guardar Cambios' : 'Crear Producto')}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+      <div className="ticket-wrapper">{selectedOrderForTicket && <DeliveryNote order={selectedOrderForTicket} />}</div>
     </div>
   );
 };
