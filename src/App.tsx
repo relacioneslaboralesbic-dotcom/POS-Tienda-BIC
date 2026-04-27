@@ -76,7 +76,7 @@ const OrderBarcode = ({ value }) => (
   </div>
 );
 
-// --- Componente Logo BIC (Del código original) ---
+// --- Componente Logo BIC ---
 const LogoBIC = ({ size = "normal", showText = true }) => (
   <div className="flex items-center gap-3">
     <img 
@@ -137,14 +137,18 @@ const App = () => {
   const [empName, setEmpName] = useState('');
   const [empShift, setEmpShift] = useState('Matutino');
 
-  const API_URL = 'https://sheetdb.io/api/v1/a174kd16wc31r';
+  // APIs de SheetDB
+  const API_URL = 'https://sheetdb.io/api/v1/a174kd16wc31r'; // Inventario
+  const HISTORY_API_URL = 'https://sheetdb.io/api/v1/artssu78fayhd'; // Historial de Pedidos
 
-  // --- CONEXIÓN A LA API (SHEETDB) ---
+  // --- CONEXIÓN A LAS APIs (SHEETDB) ---
   useEffect(() => {
-    fetch(API_URL)
-      .then(res => res.json())
-      .then(data => {
-        const formatted = data.map(p => ({
+    const fetchAllData = async () => {
+      try {
+        // Cargar Inventario
+        const resInv = await fetch(API_URL);
+        const dataInv = await resInv.json();
+        const formattedInv = dataInv.map(p => ({
           ...p,
           id: p.id || p.codigo || Math.random().toString(36).substr(2, 9),
           code: p.codigo,     
@@ -155,9 +159,42 @@ const App = () => {
           color: COLORS.bicOrange,
           image: p.image || null
         }));
-        setProducts(formatted);
+        setProducts(formattedInv);
+
+        // Cargar Historial
+        const resHist = await fetch(HISTORY_API_URL);
+        const dataHist = await resHist.json();
+        const formattedHist = dataHist.map(h => {
+          let parsedItems = [];
+          try { 
+            parsedItems = JSON.parse(h.articulos); 
+          } catch(e) { 
+            parsedItems = [{ name: h.articulos, quantity: 1, price: 0, code: 'N/A' }]; 
+          }
+          const empParts = (h.empleado || "").split('|');
+          
+          return {
+            id: h.id_vale,
+            date: h.fecha,
+            empName: empParts[0] || 'Desconocido',
+            empNumber: empParts[1] || '',
+            empShift: empParts[2] || '',
+            total: parseFloat(h.total) || 0,
+            items: parsedItems,
+            type: 'Aprobado'
+          };
+        });
+        // Mostrar historial con el más reciente primero
+        setSales(formattedHist.reverse());
+
         setIsLoading(false);
-      }).catch(() => setIsLoading(false));
+      } catch (err) {
+        notify("Error al conectar con la base de datos", "error");
+        setIsLoading(false);
+      }
+    };
+
+    fetchAllData();
   }, []);
 
   const notify = (message, type = 'success') => {
@@ -426,13 +463,18 @@ const App = () => {
     setShowSuccessModal(true);
   };
 
-  // Administrador aprueba pedido (Actualiza SheetDB)
+  // Administrador aprueba pedido (Actualiza SheetDB - Ambas Bases)
   const handleApproveOrder = async (order) => {
-    const saleRecord = { ...order, type: 'Aprobado' };
-    setSales([saleRecord, ...sales]);
-    setPendingOrders(pendingOrders.filter(o => o.id !== order.id));
-    
-    // Enviar PATCH a SheetDB para actualizar inventario real
+    // 1. Crear el objeto de historial para la nueva API
+    const historyRecord = {
+      id_vale: order.id,
+      fecha: new Date().toLocaleString(),
+      empleado: `${order.empName}|${order.empNumber}|${order.empShift}`, // Empaquetamos info
+      total: order.total,
+      articulos: JSON.stringify(order.items)
+    };
+
+    // 2. Descontar stock del inventario (API principal)
     for (const item of order.items) {
       const prod = products.find(p => p.id === item.id);
       if (prod) {
@@ -445,14 +487,38 @@ const App = () => {
             body: JSON.stringify({ stock: newStock })
           });
         } catch (e) {
-          console.error("Error al sincronizar con SheetDB");
+          console.error("Error al actualizar inventario en SheetDB");
         }
       }
     }
+
+    // 3. Subir el vale al Historial de la nueva API
+    try {
+      await fetch(HISTORY_API_URL, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: [historyRecord] })
+      });
+    } catch(e) {
+      console.error("Error al guardar en el historial", e);
+    }
     
-    notify(`Pedido #${order.id} aprobado y descontado.`, "success");
-    setSelectedOrderForTicket(saleRecord);
-    setTimeout(() => window.print(), 300);
+    // 4. Actualizar Estado Local para UI
+    const saleRecord = { 
+      id: order.id, 
+      date: historyRecord.fecha, 
+      empName: order.empName,
+      empNumber: order.empNumber,
+      empShift: order.empShift,
+      total: order.total,
+      items: order.items,
+      type: 'Aprobado' 
+    };
+
+    setSales([saleRecord, ...sales]);
+    setPendingOrders(pendingOrders.filter(o => o.id !== order.id));
+    
+    notify(`Pedido #${order.id} autorizado y guardado en historial.`, "success");
   };
 
   // Administrador rechaza pedido
@@ -467,10 +533,10 @@ const App = () => {
     notify(`Pedido #${order.id} rechazado.`, "error");
   };
 
-  // Administrador gestiona inventario
+  // Administrador gestiona inventario (Guardado persistente en nube)
   const saveProduct = async (e) => {
     e.preventDefault();
-    if (isUploadingImage) return; // Prevenir guardado si la imagen está subiéndose
+    if (isUploadingImage) return;
 
     const formData = new FormData(e.target);
     const productData = {
@@ -484,16 +550,48 @@ const App = () => {
       image: imagePreview
     };
 
+    // Mapeo específico para guardar en tu Excel mediante la API
+    const sheetPayload = {
+      codigo: productData.code,
+      nombre: productData.name,
+      precio: productData.price,
+      stock: productData.stock,
+      categoria: productData.category,
+      image: productData.image || ''
+    };
+
+    // Actualización local
     if (editingProduct) {
       setProducts(products.map(p => p.id === editingProduct.id ? productData : p));
     } else {
-      setProducts([...products, productData]);
+      setProducts([productData, ...products]);
     }
 
     setIsModalOpen(false);
+
+    // Actualización persistente en SheetDB
+    try {
+      if (editingProduct) {
+        await fetch(`${API_URL}/codigo/${editingProduct.code}`, {
+          method: 'PATCH',
+          headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(sheetPayload)
+        });
+      } else {
+        await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: [sheetPayload] })
+        });
+      }
+      notify("Inventario guardado en la nube exitosamente", "success");
+    } catch (err) {
+      console.error(err);
+      notify("Error al sincronizar con la base de datos", "error");
+    }
+
     setEditingProduct(null);
     setImagePreview(null);
-    notify("Inventario actualizado localmente");
   };
 
   // --- COMPONENTES COMPARTIDOS --- //
@@ -544,7 +642,7 @@ const App = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {order.items.map((it, i) => (
+              {order.items && order.items.map((it, i) => (
                 <tr key={i} className="text-sm font-bold">
                   <td className="py-3 px-2"><ProductBarcode value={it.code} /></td>
                   <td className="py-3 px-2 uppercase">{it.name}</td>
@@ -558,7 +656,7 @@ const App = () => {
         <div className="mt-8 border-t-2 border-black pt-6 flex justify-end gap-12">
           <div className="text-right space-y-1">
             <p className="text-gray-400 text-[10px] font-black uppercase">Importe Total:</p>
-            <p className="text-3xl font-black text-[#035AE5]">${order.total.toFixed(2)}</p>
+            <p className="text-3xl font-black text-[#035AE5]">${order.total ? order.total.toFixed(2) : "0.00"}</p>
           </div>
         </div>
         <div className="mt-16 grid grid-cols-2 gap-10 text-center">
@@ -691,40 +789,24 @@ const App = () => {
   // ==========================================
   // RENDER: PANTALLAS DE ACCESO (SELECCIÓN / LOGIN)
   // ==========================================
-  if (appMode.startsWith('selection') || appMode.startsWith('login')) {
+  if (appMode === 'selection' || appMode.startsWith('login')) {
     return (
       <div className="flex h-screen bg-[#F3EDEC]">
         <style>{globalStyles}</style>
         <Toast />
         
-        {/* Lado Izquierdo - Diseño visual estilo SaaS */}
-        <div className="hidden lg:flex flex-col justify-center items-center w-1/2 p-12 relative overflow-hidden" style={{ backgroundColor: COLORS.bladeBlue }}>
-          <div className="relative z-10 w-full max-w-xl">
-            {/* Imagen del Banner (Carga Banner.webp por defecto) */}
-            <img 
-              src="Banner.webp" 
-              alt="Banner Publicitario" 
-              className="w-full h-auto object-contain drop-shadow-2xl rounded-2xl transition-all duration-500 hover:scale-[1.02]"
-              onError={(e) => {
-                // Fallback en caso de que no cargue la imagen local
-                e.target.onerror = null; 
-                e.target.style.display = 'none';
-                e.target.nextSibling.style.display = 'block';
-              }}
-            />
-            {/* Fallback visual (oculto por defecto, se muestra si no hay imagen) */}
-            <div className="hidden bg-white/10 backdrop-blur-md p-12 rounded-3xl border border-white/20 text-center text-white shadow-xl">
-              <h1 className="text-4xl font-bold mb-4 leading-tight">Espacio para Banner</h1>
-              <p className="text-base opacity-80">Sube una imagen llamada <strong>Banner.webp</strong> o <strong>Banner.png</strong> al proyecto para que se muestre aquí automáticamente.</p>
-            </div>
-          </div>
-          {/* Elementos decorativos de fondo */}
-          <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full mix-blend-overlay opacity-20" style={{ backgroundColor: COLORS.bicOrange }}></div>
-          <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full mix-blend-overlay opacity-20" style={{ backgroundColor: COLORS.expressPurple }}></div>
+        {/* Lado Izquierdo - Banner */}
+        <div className="hidden lg:block lg:w-1/2 h-full relative bg-white border-r border-gray-200">
+          <img 
+            src="Banner.webp" 
+            alt="Banner" 
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
         </div>
 
-        {/* Lado Derecho - Interacción */}
-        <div className="w-full lg:w-1/2 flex flex-col items-center justify-center p-8 bg-white shadow-[-20px_0_40px_rgba(0,0,0,0.05)] z-20 relative">
+        {/* Lado Derecho - Formulario de Interacción */}
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-6 relative">
           
           {appMode !== 'selection' && (
             <button onClick={() => setAppMode('selection')} className="absolute top-8 left-8 p-2 text-gray-400 hover:text-black transition-colors rounded-lg hover:bg-gray-50 flex items-center gap-2 font-bold text-sm">
@@ -732,42 +814,31 @@ const App = () => {
             </button>
           )}
 
-          <div className="w-full max-w-md">
-            <div className="flex justify-center mb-10"><LogoBIC size="large" /></div>
+          <div className="bg-white p-10 lg:p-12 rounded-[40px] lg:rounded-[50px] shadow-2xl w-full max-w-md text-center border-b-[15px] border-[#F89332]">
+            <div className="flex justify-center mb-8"><LogoBIC size="large" /></div>
             
             {/* PANTALLA 1: SELECCIÓN DE PERFIL */}
             {appMode === 'selection' && (
               <div className="space-y-4 animate-in fade-in duration-300">
-                <h2 className="text-2xl font-bold text-black text-center mb-8">Selecciona tu Perfil</h2>
-                
+                <h2 className="text-xl font-black mb-8 uppercase tracking-tighter text-gray-400 italic">Portal Tiendita BIC</h2>
                 <button 
                   onClick={() => { setAppMode('login_employee'); resetUI(); }}
-                  className="w-full bg-white border-2 border-gray-200 p-5 rounded-2xl flex items-center gap-5 hover:border-[#035AE5] hover:shadow-lg transition-all group"
+                  className="w-full p-6 bg-[#035AE5] text-white rounded-3xl font-black uppercase text-xs flex justify-between items-center shadow-lg hover:scale-[1.02] transition-all"
                 >
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-colors group-hover:bg-[#035AE5] group-hover:text-white text-[#035AE5] bg-[#F3EDEC]"><ShoppingBag size={24} /></div>
-                  <div className="text-left flex-1">
-                    <h3 className="text-lg font-bold text-black">Empleado BIC</h3>
-                    <p className="text-sm font-bold text-gray-500">Acceso al Catálogo (Cliente)</p>
-                  </div>
+                  Empleado BIC <ArrowLeft className="rotate-180" />
                 </button>
-
                 <button 
                   onClick={() => { setAppMode('login_admin'); resetUI(); }}
-                  className="w-full border-2 border-transparent p-5 rounded-2xl flex items-center gap-5 shadow-md hover:shadow-xl transition-all"
-                  style={{ backgroundColor: COLORS.bicOrange }}
+                  className="w-full p-6 bg-[#F89332] text-black rounded-3xl font-black uppercase text-xs flex justify-between items-center shadow-lg hover:scale-[1.02] transition-all"
                 >
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white bg-black/10 backdrop-blur-sm"><ShieldCheck size={24} /></div>
-                  <div className="text-left flex-1">
-                    <h3 className="text-lg font-bold text-black">Administrador</h3>
-                    <p className="text-sm font-bold text-black/70">Gestión de negocio</p>
-                  </div>
+                  Administrador <ShieldCheck />
                 </button>
               </div>
             )}
 
             {/* PANTALLA 2: LOGIN ADMINISTRADOR */}
             {appMode === 'login_admin' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 text-left">
                 <h2 className="text-2xl font-bold text-black text-center mb-6">Acceso Administrador</h2>
                 {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
                 
@@ -778,7 +849,7 @@ const App = () => {
                       <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                       <input 
                         type="text" placeholder="admin" required value={username} onChange={e => setUsername(e.target.value)}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
+                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#F89332] focus:bg-white transition-all font-bold text-black"
                       />
                     </div>
                   </div>
@@ -788,21 +859,21 @@ const App = () => {
                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                       <input 
                         type="password" placeholder="admin123" required value={password} onChange={e => setPassword(e.target.value)}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
+                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#F89332] focus:bg-white transition-all font-bold text-black"
                       />
                     </div>
                   </div>
-                  <button type="submit" className="w-full py-4 rounded-xl font-bold text-black text-lg mt-6 shadow-md hover:brightness-95 active:scale-[0.98] transition-all" style={{ backgroundColor: COLORS.bicOrange }}>
+                  <button type="submit" className="w-full py-4 mt-6 rounded-xl font-bold text-black text-lg shadow-md hover:brightness-95 active:scale-[0.98] transition-all uppercase tracking-widest bg-[#F89332]">
                     Entrar al Sistema
                   </button>
                 </form>
               </div>
             )}
 
-            {/* PANTALLA 3: LOGIN EMPLEADO (CLIENTE) */}
+            {/* PANTALLA 3: LOGIN EMPLEADO */}
             {appMode === 'login_employee' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <h2 className="text-2xl font-bold text-black text-center mb-6">Acceso Empleado BIC</h2>
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 text-left">
+                <h2 className="text-2xl font-bold text-black text-center mb-6">Registro de Datos</h2>
                 {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
                 
                 <form onSubmit={handleEmployeeLogin} className="space-y-4">
@@ -840,13 +911,12 @@ const App = () => {
                       </select>
                     </div>
                   </div>
-                  <button type="submit" className="w-full py-4 rounded-xl font-bold text-white text-lg mt-6 shadow-md hover:brightness-110 active:scale-[0.98] transition-all" style={{ backgroundColor: COLORS.bladeBlue }}>
+                  <button type="submit" className="w-full py-4 mt-6 rounded-xl font-bold text-white text-lg shadow-md hover:brightness-110 active:scale-[0.98] transition-all uppercase tracking-widest bg-[#035AE5]">
                     Ingresar al Catálogo
                   </button>
                 </form>
               </div>
             )}
-
           </div>
         </div>
       </div>
@@ -931,7 +1001,7 @@ const App = () => {
   }
 
   // ==========================================
-  // RENDER: SISTEMA ADMINISTRADOR (PULPOS STYLE)
+  // RENDER: SISTEMA ADMINISTRADOR
   // ==========================================
   const SidebarItem = ({ icon, label, id, badge }) => {
     const isActive = adminView === id;
@@ -940,11 +1010,11 @@ const App = () => {
         onClick={() => setAdminView(id)}
         className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold text-sm ${
           isActive 
-            ? `bg-[${COLORS.bladeBlue}]/10 text-[${COLORS.bladeBlue}]` 
+            ? `bg-[#035AE5]/10 text-[#035AE5]` 
             : 'text-gray-500 hover:bg-gray-50 hover:text-black'
         }`}
       >
-        <span className={isActive ? `text-[${COLORS.bladeBlue}]` : ''}>{icon}</span>
+        <span className={isActive ? `text-[#035AE5]` : ''}>{icon}</span>
         <span className="hidden lg:block flex-1 text-left">{label}</span>
         {badge > 0 && (
           <span className="bg-[#DB054B] text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{badge}</span>
@@ -1002,17 +1072,14 @@ const App = () => {
                 <h2 className="text-2xl font-bold text-black mb-6">Resumen del Día</h2>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Tarjeta 1 */}
                   <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                     <div className="flex justify-between items-start mb-4">
-                      <div className={`p-3 rounded-xl bg-[${COLORS.bladeBlue}]/10 text-[${COLORS.bladeBlue}]`}><TrendingUp size={24} /></div>
+                      <div className={`p-3 rounded-xl bg-[#035AE5]/10 text-[#035AE5]`}><TrendingUp size={24} /></div>
                       <span className="text-xs font-bold text-[#64BF69] bg-[#64BF69]/10 px-2 py-1 rounded-md">+12% hoy</span>
                     </div>
                     <p className="text-sm font-bold text-gray-400">Ventas Aprobadas</p>
                     <h3 className="text-3xl font-black text-black mt-1">${sales.reduce((acc, s) => acc + s.total, 0).toFixed(2)}</h3>
                   </div>
-
-                  {/* Tarjeta 2 */}
                   <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                     <div className="flex justify-between items-start mb-4">
                       <div className="p-3 rounded-xl bg-[#F89332]/10 text-[#F89332]"><Package size={24} /></div>
@@ -1020,8 +1087,6 @@ const App = () => {
                     <p className="text-sm font-bold text-gray-400">Artículos en Stock</p>
                     <h3 className="text-3xl font-black text-black mt-1">{products.reduce((acc, p) => acc + p.stock, 0)}</h3>
                   </div>
-
-                  {/* Tarjeta 3 */}
                   <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                      <div className="flex justify-between items-start mb-4">
                       <div className="p-3 rounded-xl bg-[#DB054B]/10 text-[#DB054B]"><List size={24} /></div>
@@ -1129,7 +1194,7 @@ const App = () => {
                   <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-16 flex flex-col items-center justify-center text-center">
                     <div className="bg-[#F3EDEC] p-4 rounded-full text-gray-400 mb-4"><List size={32} /></div>
                     <p className="font-bold text-black text-lg">No hay pedidos pendientes</p>
-                    <p className="text-sm font-bold text-gray-400 mt-1">Los pedidos de los Empleados BIC aparecerán aquí.</p>
+                    <p className="text-sm font-bold text-gray-400 mt-1">Los pedidos de los Empleados aparecerán aquí.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -1157,7 +1222,7 @@ const App = () => {
                                <X size={18} /> Rechazar
                              </button>
                              <button onClick={() => handleApproveOrder(order)} className="flex-1 py-3 rounded-xl font-bold text-white bg-[#035AE5] hover:brightness-110 shadow-md transition-all flex items-center justify-center gap-2">
-                               <Check size={18} /> Autorizar y Generar Vale
+                               <Check size={18} /> Autorizar y Guardar
                              </button>
                            </div>
                         </div>
@@ -1207,7 +1272,7 @@ const App = () => {
                                <span className="font-bold text-[#035AE5] block">${sale.total.toFixed(2)}</span>
                                <div className="flex justify-end gap-2 mt-2">
                                   <button onClick={() => handleDownloadImage(sale)} className="p-2 bg-blue-50 text-[#035AE5] rounded-lg hover:bg-blue-100" title="Descargar Imagen"><Download size={14}/></button>
-                                  <button onClick={() => { setSelectedOrderForTicket(sale); setTimeout(() => window.print(), 300); }} className="p-2 bg-orange-50 text-[#F89332] rounded-lg hover:bg-orange-100" title="Imprimir"><Printer size={14}/></button>
+                                  {/* Eliminado el botón imprimir como fue solicitado */}
                                </div>
                             </td>
                           </tr>
@@ -1299,7 +1364,6 @@ const App = () => {
           </div>
         </div>
       )}
-      <div className="ticket-wrapper">{selectedOrderForTicket && <DeliveryNote order={selectedOrderForTicket} />}</div>
     </div>
   );
 };
