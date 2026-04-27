@@ -143,16 +143,29 @@ const App = () => {
   const [loginForm, setLoginForm] = useState({ user: '', pass: '', empNum: '', empName: '', empShift: 'Matutino' });
   const [loginError, setLoginError] = useState('');
 
-  // UseCallback asegura que la función sea estable para pasar las reglas del compilador de Vercel
   const notify = useCallback((message, type = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 5000);
   }, []);
 
-  const resetUI = () => {
+  // --- FUNCIÓN FALTANTE #1: resetUI ---
+  const resetUI = useCallback(() => {
     setLoginForm({ user: '', pass: '', empNum: '', empName: '', empShift: 'Matutino' });
     setLoginError('');
-  };
+  }, []);
+
+  // --- FUNCIÓN FALTANTE #2: downloadCSVTemplate ---
+  const downloadCSVTemplate = useCallback(() => {
+    const csv = "code,name,price,stock,category\nBIC-01,PLUMA AZUL,12.50,100,Stationery\nBIC-02,ENCENDEDOR,25.00,50,Lighter";
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Plantilla_Inventario_BIC.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    notify("Descargando plantilla CSV...");
+  }, [notify]);
 
   // --- AUTENTICACIÓN ANÓNIMA SILENCIOSA ---
   useEffect(() => {
@@ -162,7 +175,6 @@ const App = () => {
       } else {
         signInAnonymously(auth).catch((error) => {
           console.error("Error de autenticación segura:", error);
-          // Si falla, permitimos intentar leer por si las reglas son públicas
           setIsAuthReady(true); 
         });
       }
@@ -175,7 +187,6 @@ const App = () => {
   useEffect(() => {
     if (!isAuthReady) return;
 
-    // Escuchar Inventario
     const unsubInv = onSnapshot(collection(db, "inventory"), (snap) => {
       setProducts(snap.docs.map(d => d.data()));
       setIsLoading(false);
@@ -187,7 +198,6 @@ const App = () => {
       }
     });
 
-    // Escuchar Historial
     const qHist = query(collection(db, "history"), orderBy("date", "desc"));
     const unsubHist = onSnapshot(qHist, (snap) => {
       setSales(snap.docs.map(d => d.data()));
@@ -351,16 +361,6 @@ const App = () => {
     reader.readAsText(file);
   };
 
-  const downloadCSVTemplate = () => {
-    const csv = "code,name,price,stock,category\nBIC-01,PLUMA AZUL,12.50,100,Stationery\n";
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Plantilla_Inventario_BIC.csv';
-    a.click();
-  };
-
   const handleDownloadImage = (order) => {
     setSelectedOrderForTicket(order);
     notify("Generando imagen...", "success");
@@ -408,11 +408,9 @@ const App = () => {
   const handleApproveOrder = async (order) => {
     try {
       notify("Procesando aprobación...", "success");
-      // 1. Guardar en Historial Firebase
       const historyRef = doc(db, "history", order.id_vale);
       await setDoc(historyRef, { ...order, status: 'Aprobado' });
 
-      // 2. Descontar Stock en Firebase
       for (const item of order.items) {
         const pRef = doc(db, "inventory", item.id);
         const currentProd = products.find(p => p.id === item.id);
@@ -421,7 +419,6 @@ const App = () => {
         }
       }
       
-      // Eliminar de pendientes
       setPendingOrders(pendingOrders.filter(o => o.id_vale !== order.id_vale));
       notify("Pedido autorizado y descontado del inventario", "success");
     } catch (e) { 
@@ -494,33 +491,29 @@ const App = () => {
         <style>{globalStyles}</style>
         {notification && <div className={`fixed top-4 right-4 z-[100] p-4 rounded-lg shadow-2xl border-l-4 ${notification.type === 'error' ? 'bg-white border-red-500' : 'bg-white border-green-500'} font-bold`}>{notification.message}</div>}
         
-        {/* Lado Izquierdo - Diseño visual estilo SaaS */}
+        {/* Lado Izquierdo */}
         <div className="hidden lg:flex flex-col justify-center items-center w-1/2 p-12 relative overflow-hidden bg-[#035AE5]">
           <div className="relative z-10 w-full max-w-xl">
-            {/* Imagen del Banner (Carga Banner.webp por defecto) */}
             <img 
               src="Banner.webp" 
               alt="Banner Publicitario" 
               className="w-full h-auto object-contain drop-shadow-2xl rounded-2xl transition-all duration-500 hover:scale-[1.02]"
               onError={(e) => {
-                // Fallback en caso de que no cargue la imagen local
                 e.target.onerror = null; 
                 e.target.style.display = 'none';
                 e.target.nextSibling.style.display = 'block';
               }}
             />
-            {/* Fallback visual (oculto por defecto, se muestra si no hay imagen) */}
             <div className="hidden bg-white/10 backdrop-blur-md p-12 rounded-3xl border border-white/20 text-center text-white shadow-xl">
               <h1 className="text-4xl font-bold mb-4 leading-tight">Espacio para Banner</h1>
               <p className="text-base opacity-80">Sube una imagen llamada <strong>Banner.webp</strong> o <strong>Banner.png</strong> al proyecto para que se muestre aquí automáticamente.</p>
             </div>
           </div>
-          {/* Elementos decorativos de fondo */}
           <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full mix-blend-overlay opacity-20 bg-[#F89332]"></div>
           <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full mix-blend-overlay opacity-20 bg-[#A14EF9]"></div>
         </div>
 
-        {/* Lado Derecho - Formulario de Interacción */}
+        {/* Lado Derecho - Formulario */}
         <div className="w-full lg:w-1/2 flex flex-col items-center justify-center p-8 bg-white shadow-[-20px_0_40px_rgba(0,0,0,0.05)] z-20 relative">
           
           {appMode !== 'selection' && (
@@ -730,7 +723,7 @@ const App = () => {
       )}
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* Header Empleado o Admin Mobile */}
+        {/* Header */}
         <header className="h-16 bg-white border-b border-gray-200 px-4 flex items-center justify-between shrink-0 z-30">
           <LogoBIC size="small" showText={appMode === 'employee'} />
           {appMode === 'employee' ? (
@@ -833,7 +826,7 @@ const App = () => {
                           <span className="text-2xl font-black text-black">${order.total.toFixed(2)}</span>
                         </div>
                         <div className="p-5 flex-1 flex flex-col">
-                           <ul className="space-y-3 mb-8">
+                           <ul className="space-y-3 mb-6">
                             {order.items.map((it, i) => (
                               <li key={i} className="flex justify-between items-center text-sm font-bold uppercase">
                                 <span className="text-gray-600"><span className="text-[#035AE5] bg-blue-50 px-1.5 py-0.5 rounded mr-2">{it.quantity}x</span> {it.name}</span>
@@ -841,9 +834,9 @@ const App = () => {
                               </li>
                             ))}
                            </ul>
-                           <div className="flex gap-4 mt-auto">
-                             <button onClick={() => handleRejectOrder(order)} className="flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-[#DB054B] bg-white border-2 border-[#DB054B] hover:bg-red-50 transition-colors flex items-center justify-center gap-2 text-xs">Rechazar</button>
-                             <button onClick={() => handleApproveOrder(order)} className="flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-white bg-[#035AE5] hover:scale-[1.02] shadow-xl transition-all flex items-center justify-center gap-2 text-xs"><Check size={18} /> Autorizar</button>
+                           <div className="flex gap-3 mt-auto">
+                             <button onClick={() => handleRejectOrder(order)} className="flex-1 py-3 rounded-xl font-bold text-[#DB054B] bg-white border-2 border-[#DB054B] hover:bg-red-50 transition-colors flex items-center justify-center gap-2">Rechazar</button>
+                             <button onClick={() => handleApproveOrder(order)} className="flex-1 py-3 rounded-xl font-bold text-white bg-[#035AE5] shadow-md hover:brightness-110 transition-all flex items-center justify-center gap-2"><Check size={18} /> Autorizar</button>
                            </div>
                         </div>
                       </div>
@@ -853,7 +846,7 @@ const App = () => {
               </div>
             ) : adminView === 'history' && appMode === 'admin' ? (
               <div className="space-y-6">
-                <div className="flex justify-between items-center mb-8"><h2 className="text-2xl font-bold text-black">Historial Aprobado</h2><button onClick={downloadReport} className="bg-white border border-gray-200 text-black px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-all"><Download size={18} /> Exportar CSV</button></div>
+                <div className="flex justify-between items-center mb-8"><h2 className="text-2xl font-bold text-black">Historial Aprobado</h2><button onClick={downloadReport} className="bg-white border border-gray-200 text-black px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-all"><Download size={18} /> Exportar CSV</button></div>
                 {sales.length === 0 ? (
                   <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-16 flex flex-col items-center justify-center text-center"><div className="bg-[#F3EDEC] p-4 rounded-full text-gray-400 mb-4"><History size={32} /></div><p className="font-bold text-black text-lg">Aún no hay aprobaciones</p></div>
                 ) : (
