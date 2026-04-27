@@ -1,9 +1,9 @@
 // @ts-nocheck
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   ShoppingCart, Package, History, Plus, Search, Trash2, 
   X, CheckCircle, LogOut, Edit2, ArrowLeft, Minus,
-  User, Lock, ShoppingBag, List, Check, XCircle,
+  User, Lock, ShoppingBag, List, Check,
   Download, ImageIcon, LayoutDashboard, TrendingUp,
   BadgeInfo, Clock, UserCircle, ShieldCheck, FileDown, FileUp, Printer
 } from 'lucide-react';
@@ -31,19 +31,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-
-// --- Configuración Visual BIC ---
-const COLORS = {
-  bicOrange: '#F89332',
-  bladeBlue: '#035AE5',
-  expressPurple: '#A14EF9',
-  flameRed: '#DB054B',
-  accentYellow: '#FFCC00',
-  accentGreen: '#64BF69',
-  background: '#F3EDEC',
-  white: '#FFFFFF',
-  black: '#000000',
-};
 
 const CATEGORIES = ['Todos', 'Stationery', 'Lighter', 'Shaver', 'Brushes'];
 
@@ -105,6 +92,27 @@ const LogoBIC = ({ size = "normal", showText = true }) => (
   </div>
 );
 
+// Componente Sidebar movido fuera de App para evitar advertencias de Vercel/React
+const SidebarItem = ({ icon, label, id, badge, adminView, setAdminView }) => {
+  const isActive = adminView === id;
+  return (
+    <button 
+      onClick={() => setAdminView(id)}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold text-sm ${
+        isActive 
+          ? 'bg-[#035AE5]/10 text-[#035AE5]' 
+          : 'text-gray-500 hover:bg-gray-50 hover:text-black'
+      }`}
+    >
+      <span className={isActive ? 'text-[#035AE5]' : ''}>{icon}</span>
+      <span className="hidden lg:block flex-1 text-left">{label}</span>
+      {badge > 0 && (
+        <span className="bg-[#DB054B] text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{badge}</span>
+      )}
+    </button>
+  );
+};
+
 const App = () => {
   // Navegación y Sesión
   const [appMode, setAppMode] = useState('selection'); 
@@ -135,10 +143,11 @@ const App = () => {
   const [loginForm, setLoginForm] = useState({ user: '', pass: '', empNum: '', empName: '', empShift: 'Matutino' });
   const [loginError, setLoginError] = useState('');
 
-  const notify = (message, type = 'success') => {
+  // UseCallback asegura que la función sea estable para pasar las reglas del compilador de Vercel
+  const notify = useCallback((message, type = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 5000);
-  };
+  }, []);
 
   // --- AUTENTICACIÓN ANÓNIMA SILENCIOSA ---
   useEffect(() => {
@@ -182,7 +191,7 @@ const App = () => {
     });
 
     return () => { unsubInv(); unsubHist(); };
-  }, [isAuthReady]);
+  }, [isAuthReady, notify]);
 
   const handleAdminLogin = (e) => {
     e.preventDefault();
@@ -229,7 +238,7 @@ const App = () => {
       const cloudName = 'dvrluet68';
       const apiKey = '454519176479577';
       const apiSecret = 'O5Jui-cALz43axjlFOkAL4FJ4HU';
-      const timestamp = Math.round((new Date).getTime() / 1000);
+      const timestamp = Math.round(Date.now() / 1000);
 
       const str = `timestamp=${timestamp}${apiSecret}`;
       const buffer = new TextEncoder().encode(str);
@@ -460,27 +469,6 @@ const App = () => {
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) && (selectedCategory === 'Todos' || p.category === selectedCategory)
   ), [products, searchTerm, selectedCategory]);
 
-  // --- Componente UI Compartido: SidebarItem ---
-  const SidebarItem = ({ icon, label, id, badge }) => {
-    const isActive = adminView === id;
-    return (
-      <button 
-        onClick={() => setAdminView(id)}
-        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold text-sm ${
-          isActive 
-            ? 'bg-[#035AE5]/10 text-[#035AE5]' 
-            : 'text-gray-500 hover:bg-gray-50 hover:text-black'
-        }`}
-      >
-        <span className={isActive ? 'text-[#035AE5]' : ''}>{icon}</span>
-        <span className="hidden lg:block flex-1 text-left">{label}</span>
-        {badge > 0 && (
-          <span className="bg-[#DB054B] text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{badge}</span>
-        )}
-      </button>
-    );
-  };
-
 
   // ==========================================
   // RENDER: PANTALLAS DE ACCESO (SELECCIÓN / LOGIN)
@@ -709,10 +697,10 @@ const App = () => {
           </div>
           <nav className="flex-1 py-6 px-3 space-y-1.5 overflow-y-auto hide-scrollbar">
             <p className="hidden lg:block text-xs font-bold text-gray-400 uppercase tracking-widest px-4 mb-2 mt-2">Gestión Integral</p>
-            <SidebarItem id="dashboard" icon={<LayoutDashboard size={20}/>} label="Resumen" />
-            <SidebarItem id="orders" icon={<List size={20}/>} label="Pedidos" badge={pendingOrders.length} />
-            <SidebarItem id="inventory" icon={<Package size={20}/>} label="Inventario" />
-            <SidebarItem id="history" icon={<History size={20}/>} label="Historial" />
+            <SidebarItem id="dashboard" icon={<LayoutDashboard size={20}/>} label="Resumen" adminView={adminView} setAdminView={setAdminView} />
+            <SidebarItem id="orders" icon={<List size={20}/>} label="Pedidos" badge={pendingOrders.length} adminView={adminView} setAdminView={setAdminView} />
+            <SidebarItem id="inventory" icon={<Package size={20}/>} label="Inventario" adminView={adminView} setAdminView={setAdminView} />
+            <SidebarItem id="history" icon={<History size={20}/>} label="Historial" adminView={adminView} setAdminView={setAdminView} />
           </nav>
           <div className="p-4 border-t border-gray-100">
             <div className="hidden lg:block px-4 pb-4">
@@ -895,7 +883,7 @@ const App = () => {
                     {filteredProducts.map(p => (
                       <div key={p.id} onClick={() => addToCart(p)} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-[#035AE5] active:scale-[0.98] transition-all cursor-pointer relative flex flex-col">
                         <div className="w-full aspect-square rounded-xl bg-[#F3EDEC] mb-4 flex items-center justify-center overflow-hidden border border-gray-50 relative p-2">
-                          {p.image ? <img src={p.image} className="w-full h-full object-contain" /> : <div className="w-full h-full flex items-center justify-center rounded-lg bg-gray-200"><Package className="text-gray-400" size={32} /></div>}
+                          {p.image ? <img src={p.image} alt={p.name} className="w-full h-full object-contain" /> : <div className="w-full h-full flex items-center justify-center rounded-lg bg-gray-200"><Package className="text-gray-400" size={32} /></div>}
                           {p.stock <= 5 && p.stock > 0 && <span className="absolute top-2 right-2 bg-[#FFCC00] text-black px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">Poco Stock</span>}
                         </div>
                         <h4 className="font-bold text-sm h-10 line-clamp-2 uppercase leading-tight mb-1">{p.name}</h4>
@@ -1011,11 +999,11 @@ const App = () => {
       {/* Modal Admin Inventario */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] border-b-[10px] border-[#F89332] animate-in slide-in-from-bottom-10 duration-300">
+          <div className="bg-white w-full max-w-xl rounded-[50px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh] border-b-[10px] border-[#F89332] animate-in slide-in-from-bottom-10 duration-300">
             <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-[#F3EDEC]/30"><h2 className="text-xl font-black uppercase tracking-tighter">{editingProduct ? 'Modificar Registro' : 'Nuevo Material'}</h2><button onClick={() => setIsModalOpen(false)} className="p-2 bg-white rounded-full shadow-sm text-gray-400 hover:text-black transition-colors"><X size={18}/></button></div>
             <form onSubmit={saveProduct} className="p-6 overflow-y-auto space-y-6 hide-scrollbar">
               <div className="flex items-center gap-6">
-                <div className="w-24 h-24 rounded-2xl bg-[#F3EDEC] border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">{imagePreview ? <img src={imagePreview} className="w-full h-full object-contain" /> : <ImageIcon className="text-gray-300" size={32} />}</div>
+                <div className="w-24 h-24 rounded-2xl bg-[#F3EDEC] border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">{imagePreview ? <img src={imagePreview} alt="Vista Previa" className="w-full h-full object-contain" /> : <ImageIcon className="text-gray-300" size={32} />}</div>
                 <div className="flex-1 space-y-2">
                   <label className={`block w-full p-4 rounded-xl border-2 border-dashed text-center font-bold text-[10px] uppercase tracking-widest cursor-pointer transition-all ${isUploading ? 'bg-gray-100 text-gray-400' : 'bg-white hover:border-[#035AE5] hover:text-[#035AE5]'}`}>{isUploading ? 'Subiendo...' : 'Cargar Foto de Cloudinary'}<input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading}/></label>
                 </div>
