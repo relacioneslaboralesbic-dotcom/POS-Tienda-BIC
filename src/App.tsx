@@ -2,9 +2,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   ShoppingCart, Package, History, Plus, Search, Trash2, 
-  Save, X, CheckCircle, LogOut, Edit2, ArrowLeft, Minus,
-  User, Lock, Store, ShoppingBag, List, Check, XCircle,
-  Download, Upload, ImageIcon, LayoutDashboard, TrendingUp,
+  X, CheckCircle, LogOut, Edit2, ArrowLeft, Minus,
+  User, Lock, ShoppingBag, List, Check, XCircle,
+  Download, ImageIcon, LayoutDashboard, TrendingUp,
   BadgeInfo, Clock, UserCircle, ShieldCheck, FileDown, FileUp, Printer
 } from 'lucide-react';
 
