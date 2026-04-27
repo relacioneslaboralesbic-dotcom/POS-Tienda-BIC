@@ -150,6 +150,9 @@ const App = () => {
       try {
         const resInv = await fetch(API_URL);
         const dataInv = await resInv.json();
+        
+        if (dataInv.error) throw new Error(dataInv.error);
+        
         const formattedInv = dataInv.map(p => ({
           ...p,
           id: p.id || p.codigo || Math.random().toString(36).substr(2, 9),
@@ -165,19 +168,22 @@ const App = () => {
 
         const resHist = await fetch(HISTORY_API_URL);
         const dataHist = await resHist.json();
-        const formattedHist = dataHist.map(h => {
-          return {
-            id: h.id_vale,
-            date: h.fecha,
-            empName: h.empleado,
-            empNumber: 'N/A', 
-            empShift: '',
-            total: parseFloat(h.total) || 0,
-            items: [{ name: h.articulos, quantity: 1, price: 0, code: 'N/A' }],
-            type: 'Aprobado'
-          };
-        });
-        setSales(formattedHist.reverse());
+        
+        if (!dataHist.error) {
+          const formattedHist = dataHist.map(h => {
+            return {
+              id: h.id_vale,
+              date: h.fecha,
+              empName: h.empleado,
+              empNumber: 'N/A', 
+              empShift: '',
+              total: parseFloat(h.total) || 0,
+              items: [{ name: h.articulos, quantity: 1, price: 0, code: 'N/A' }],
+              type: 'Aprobado'
+            };
+          });
+          setSales(formattedHist.reverse());
+        }
 
         setIsLoading(false);
       } catch (err) {
@@ -427,7 +433,7 @@ const App = () => {
   };
 
   const handleApproveOrder = async (order) => {
-    // Transformar items a Texto Simple para evitar que SheetDB colapse con JSONs
+    // Transformar items a Texto Simple
     const articulosTexto = order.items.map(it => `${it.quantity}x ${it.name}`).join(' | ');
 
     const historyRecord = {
@@ -438,23 +444,24 @@ const App = () => {
       articulos: articulosTexto
     };
 
-    // Actualizar Inventario
+    // Actualizar Inventario (Stock)
     for (const item of order.items) {
       const prod = products.find(p => p.id === item.id);
       if (prod) {
         try {
-          await fetch(`${API_URL}/codigo/${item.code}`, {
+          // Usar encodeURIComponent previene errores de espacios en los códigos
+          await fetch(`${API_URL}/codigo/${encodeURIComponent(item.code)}`, {
             method: 'PATCH',
             headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stock: prod.stock })
+            body: JSON.stringify({ data: { stock: prod.stock } })
           });
         } catch (e) {
-          console.error(e);
+          console.error("Error al actualizar stock de", item.code);
         }
       }
     }
 
-    // Actualizar Historial
+    // Actualizar Historial (Envío Robusto a SheetDB)
     try {
       const resp = await fetch(HISTORY_API_URL, {
         method: 'POST',
@@ -462,12 +469,15 @@ const App = () => {
         body: JSON.stringify({ data: [historyRecord] })
       });
       const respData = await resp.json();
-      if(respData.created) {
+      
+      if(resp.ok && respData.created) {
         notify("Pedido autorizado y guardado en Historial.", "success");
       } else {
-        notify("Pedido autorizado, revisa la base de datos", "success");
+        console.error("Error Historial SheetDB:", respData);
+        notify(`Error guardando historial: ${respData.error || 'Revisa columnas en Excel'}`, "error");
       }
     } catch(e) {
+      console.error(e);
       notify("Error conectando al historial SheetDB", "error");
     }
     
@@ -525,24 +535,34 @@ const App = () => {
     setIsModalOpen(false);
 
     try {
+      let resp;
       if (editingProduct) {
-        await fetch(`${API_URL}/codigo/${editingProduct.code}`, {
+        resp = await fetch(`${API_URL}/codigo/${encodeURIComponent(editingProduct.code)}`, {
           method: 'PATCH',
           headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify(sheetPayload)
+          body: JSON.stringify({ data: sheetPayload })
         });
       } else {
-        await fetch(API_URL, {
+        resp = await fetch(API_URL, {
           method: 'POST',
           headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: [sheetPayload] })
         });
       }
-      notify("Se guardó el artículo en SheetDB", "success");
+      
+      const dataResp = await resp.json();
+      
+      if (resp.ok && !dataResp.error) {
+        notify("Se guardó el artículo en SheetDB", "success");
+      } else {
+        console.error("Error SheetDB:", dataResp);
+        notify(`Error guardando en Excel: ${dataResp.error || 'Revisa nombres de columnas'}`, "error");
+      }
     } catch (err) {
       console.error(err);
-      notify("El artículo se modificó localmente (Error SheetDB)", "error");
+      notify("Error de conexión con SheetDB", "error");
     }
+    
     setEditingProduct(null);
     setImagePreview(null);
   };
@@ -699,9 +719,7 @@ const App = () => {
       
       <div className="flex-1 overflow-y-auto p-6">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {isLoading ? (
-            <div className="col-span-full py-10 text-center font-bold text-gray-400 animate-pulse">Cargando inventario...</div>
-          ) : filteredProducts.map(product => (
+          {filteredProducts.map(product => (
             <div 
               key={product.id} onClick={() => addToCart(product)}
               className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-[#035AE5] active:scale-[0.98] transition-all flex flex-col relative cursor-pointer"
@@ -748,24 +766,16 @@ const App = () => {
         <Toast />
         
         {/* Lado Izquierdo - Banner */}
-        <div className="hidden lg:flex lg:w-1/2 h-full relative bg-[#035AE5] items-center justify-center border-r border-gray-200">
+        <div className="hidden lg:block lg:w-1/2 h-full relative bg-white border-r border-gray-200">
           <img 
             src="Banner.webp" 
-            alt="Banner Planta Saltillo" 
-            className="absolute inset-0 w-full h-full object-cover opacity-50 mix-blend-overlay"
-            onError={(e) => { 
-              // Fallback visual (Oficina Corporativa)
-              e.target.src = 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1000&q=80'; 
-            }}
+            alt="Banner" 
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={(e) => { e.target.style.display = 'none'; }}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#035AE5]/90 to-transparent"></div>
-          <div className="z-10 text-center text-white p-12">
-            <h1 className="text-5xl font-black uppercase tracking-tighter mb-4 drop-shadow-lg">Planta Saltillo</h1>
-            <p className="text-xl font-bold opacity-90 uppercase tracking-widest italic drop-shadow-md">Suministros de Oficina</p>
-          </div>
         </div>
 
-        {/* Lado Derecho - Formulario */}
+        {/* Lado Derecho - Formulario de Interacción */}
         <div className="w-full lg:w-1/2 flex items-center justify-center p-6 relative">
           
           {appMode !== 'selection' && (
@@ -1021,6 +1031,7 @@ const App = () => {
         <div className="flex flex-1 overflow-hidden">
           <main className="flex-1 overflow-y-auto">
             
+            {/* VISTA: DASHBOARD */}
             {adminView === 'dashboard' && (
               <div className="p-6 lg:p-10 space-y-6">
                 <h2 className="text-2xl font-bold text-black mb-6">Resumen del Día</h2>
@@ -1063,7 +1074,7 @@ const App = () => {
                             <div className="w-10 h-10 rounded-full bg-[#F3EDEC] flex items-center justify-center text-black"><Check size={16} /></div>
                             <div>
                               <p className="text-sm font-bold text-black">Pedido de {s.empName}</p>
-                              <p className="text-xs text-gray-400 font-bold">{s.empNumber}</p>
+                              <p className="text-xs text-gray-400 font-bold">No. {s.empNumber}</p>
                             </div>
                           </div>
                           <span className="font-bold text-[#035AE5]">${s.total.toFixed(2)}</span>
@@ -1075,6 +1086,7 @@ const App = () => {
               </div>
             )}
 
+            {/* VISTA: INVENTARIO */}
             {adminView === 'inventory' && (
               <div className="p-6 lg:p-10">
                 <div className="flex justify-between items-center mb-8">
