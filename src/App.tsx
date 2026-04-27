@@ -40,6 +40,11 @@ const globalStyles = `
   
   @media print {
     @page { size: letter; margin: 0; }
+    * { 
+      -webkit-print-color-adjust: exact !important; 
+      print-color-adjust: exact !important; 
+      color-adjust: exact !important; 
+    }
     body * { visibility: hidden; }
     .ticket-wrapper, .ticket-wrapper * { visibility: visible; }
     .ticket-wrapper { position: absolute; left: 0; top: 0; z-index: 9999; width: 215.9mm; }
@@ -519,6 +524,9 @@ const App = () => {
     setPendingOrders(pendingOrders.filter(o => o.id !== order.id));
     
     notify(`Pedido #${order.id} autorizado y guardado en historial.`, "success");
+    setSelectedOrderForTicket(saleRecord);
+    // Agregamos un ligero retraso mayor para permitir que el DOM renderice el código de barras antes de imprimir
+    setTimeout(() => window.print(), 500);
   };
 
   // Administrador rechaza pedido
@@ -931,6 +939,7 @@ const App = () => {
       <div className="flex flex-col h-screen bg-[#F3EDEC]">
         <style>{globalStyles}</style>
         <Toast />
+        <div className="ticket-wrapper">{selectedOrderForTicket && <DeliveryNote order={selectedOrderForTicket} />}</div>
         
         {/* Cabecera del Empleado */}
         <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between z-30 shrink-0 shadow-sm">
@@ -1027,6 +1036,7 @@ const App = () => {
     <div className="flex h-screen bg-[#F3EDEC]">
       <style>{globalStyles}</style>
       <Toast />
+      <div className="ticket-wrapper">{selectedOrderForTicket && <DeliveryNote order={selectedOrderForTicket} />}</div>
 
       {/* BARRA LATERAL (Sidebar Desktop) */}
       <aside className="hidden md:flex w-20 lg:w-64 bg-white border-r border-gray-200 flex-col z-30 shadow-[5px_0_20px_rgba(0,0,0,0.02)] transition-all duration-300">
