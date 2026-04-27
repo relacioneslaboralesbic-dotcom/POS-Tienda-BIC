@@ -643,161 +643,112 @@ const App = () => {
   // ==========================================
   // RENDER: PANTALLAS DE ACCESO (SELECCIÓN / LOGIN)
   // ==========================================
-  if (appMode.startsWith('selection') || appMode.startsWith('login')) {
+  if (appMode === 'selection') {
     return (
-      <div className="flex h-screen bg-[#F3EDEC]">
+      <div className="h-screen bg-[#F3EDEC] flex items-center justify-center p-6">
         <style>{globalStyles}</style>
         <Toast />
-        
-        {/* Lado Izquierdo - Diseño visual estilo SaaS original */}
-        <div className="hidden lg:flex flex-col justify-center items-center w-1/2 p-12 relative overflow-hidden" style={{ backgroundColor: COLORS.bladeBlue }}>
-          <div className="relative z-10 w-full max-w-xl">
-            {/* Imagen del Banner */}
-            <img 
-              src="Banner.webp" 
-              alt="Banner Publicitario" 
-              className="w-full h-auto object-contain drop-shadow-2xl rounded-2xl transition-all duration-500 hover:scale-[1.02]"
-              onError={(e) => {
-                e.target.onerror = null; 
-                e.target.style.display = 'none';
-                e.target.nextSibling.style.display = 'block';
-              }}
-            />
-            {/* Fallback visual */}
-            <div className="hidden bg-white/10 backdrop-blur-md p-12 rounded-3xl border border-white/20 text-center text-white shadow-xl">
-              <h1 className="text-4xl font-bold mb-4 leading-tight">Espacio para Banner</h1>
-              <p className="text-base opacity-80">Sube una imagen llamada <strong>Banner.webp</strong> o <strong>Banner.png</strong> al proyecto para que se muestre aquí automáticamente.</p>
-            </div>
-          </div>
-          <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full mix-blend-overlay opacity-20" style={{ backgroundColor: COLORS.bicOrange }}></div>
-          <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full mix-blend-overlay opacity-20" style={{ backgroundColor: COLORS.expressPurple }}></div>
-        </div>
-
-        {/* Lado Derecho - Interacción */}
-        <div className="w-full lg:w-1/2 flex flex-col items-center justify-center p-8 bg-white shadow-[-20px_0_40px_rgba(0,0,0,0.05)] z-20 relative">
-          
-          {appMode !== 'selection' && (
-            <button onClick={() => setAppMode('selection')} className="absolute top-8 left-8 p-2 text-gray-400 hover:text-black transition-colors rounded-lg hover:bg-gray-50 flex items-center gap-2 font-bold text-sm">
-              <ArrowLeft size={18} /> Volver
+        <div className="bg-white p-12 rounded-[50px] shadow-2xl w-full max-w-md text-center border-b-[15px] border-[#F89332]">
+          <div className="flex justify-center mb-10"><LogoBIC size="large" /></div>
+          <h2 className="text-xl font-black mb-8 uppercase tracking-tighter text-gray-400 italic">Portal Tiendita BIC</h2>
+          <div className="space-y-4">
+            <button 
+              onClick={() => { setAppMode('login_employee'); resetUI(); }}
+              className="w-full p-6 bg-[#035AE5] text-white rounded-3xl font-black uppercase text-xs flex justify-between items-center shadow-lg hover:scale-[1.02] transition-all"
+            >
+              Empleado BIC <ArrowLeft className="rotate-180" />
             </button>
-          )}
-
-          <div className="w-full max-w-md">
-            <div className="flex justify-center mb-10"><LogoBIC size="large" /></div>
-            
-            {/* PANTALLA 1: SELECCIÓN DE PERFIL */}
-            {appMode === 'selection' && (
-              <div className="space-y-4 animate-in fade-in duration-300">
-                <h2 className="text-2xl font-bold text-black text-center mb-8">Selecciona tu Perfil</h2>
-                
-                <button 
-                  onClick={() => { setAppMode('login_employee'); resetUI(); }}
-                  className="w-full bg-white border-2 border-gray-200 p-5 rounded-2xl flex items-center gap-5 hover:border-[#035AE5] hover:shadow-lg transition-all group"
-                >
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-colors group-hover:bg-[#035AE5] group-hover:text-white text-[#035AE5] bg-[#F3EDEC]"><ShoppingBag size={24} /></div>
-                  <div className="text-left flex-1">
-                    <h3 className="text-lg font-bold text-black">Empleado BIC</h3>
-                    <p className="text-sm font-bold text-gray-500">Acceso al Catálogo (Cliente)</p>
-                  </div>
-                </button>
-
-                <button 
-                  onClick={() => { setAppMode('login_admin'); resetUI(); }}
-                  className="w-full border-2 border-transparent p-5 rounded-2xl flex items-center gap-5 shadow-md hover:shadow-xl transition-all"
-                  style={{ backgroundColor: COLORS.bicOrange }}
-                >
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white bg-black/10 backdrop-blur-sm"><ShieldCheck size={24} /></div>
-                  <div className="text-left flex-1">
-                    <h3 className="text-lg font-bold text-black">Administrador</h3>
-                    <p className="text-sm font-bold text-black/70">Gestión de negocio</p>
-                  </div>
-                </button>
-              </div>
-            )}
-
-            {/* PANTALLA 2: LOGIN ADMINISTRADOR */}
-            {appMode === 'login_admin' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <h2 className="text-2xl font-bold text-black text-center mb-6">Acceso Administrador</h2>
-                {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
-                
-                <form onSubmit={handleAdminLogin} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Usuario</label>
-                    <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <input 
-                        type="text" placeholder="admin" required value={username} onChange={e => setUsername(e.target.value)}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Contraseña</label>
-                    <div className="relative">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <input 
-                        type="password" placeholder="admin123" required value={password} onChange={e => setPassword(e.target.value)}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
-                      />
-                    </div>
-                  </div>
-                  <button type="submit" className="w-full py-4 rounded-xl font-bold text-black text-lg mt-6 shadow-md hover:brightness-95 active:scale-[0.98] transition-all" style={{ backgroundColor: COLORS.bicOrange }}>
-                    Entrar al Sistema
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {/* PANTALLA 3: LOGIN EMPLEADO (CLIENTE) */}
-            {appMode === 'login_employee' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <h2 className="text-2xl font-bold text-black text-center mb-6">Acceso Empleado BIC</h2>
-                {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
-                
-                <form onSubmit={handleEmployeeLogin} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Número de Empleado</label>
-                    <div className="relative">
-                      <BadgeInfo className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <input 
-                        type="text" placeholder="Ej. 10452" required value={empNumber} onChange={e => setEmpNumber(e.target.value)}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nombre Completo</label>
-                    <div className="relative">
-                      <UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <input 
-                        type="text" placeholder="Ej. Juan Pérez" required value={empName} onChange={e => setEmpName(e.target.value)}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Turno</label>
-                    <div className="relative">
-                      <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <select 
-                        required value={empShift} onChange={e => setEmpShift(e.target.value)}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black appearance-none cursor-pointer"
-                      >
-                        <option value="Matutino">Matutino</option>
-                        <option value="Vespertino">Vespertino</option>
-                        <option value="Nocturno">Nocturno</option>
-                      </select>
-                    </div>
-                  </div>
-                  <button type="submit" className="w-full py-4 rounded-xl font-bold text-white text-lg mt-6 shadow-md hover:brightness-110 active:scale-[0.98] transition-all" style={{ backgroundColor: COLORS.bladeBlue }}>
-                    Ingresar al Catálogo
-                  </button>
-                </form>
-              </div>
-            )}
-
+            <button 
+              onClick={() => { setAppMode('login_admin'); resetUI(); }}
+              className="w-full p-6 bg-[#F89332] text-black rounded-3xl font-black uppercase text-xs flex justify-between items-center shadow-lg hover:scale-[1.02] transition-all"
+            >
+              Administrador <ShieldCheck />
+            </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (appMode.startsWith('login')) {
+    return (
+      <div className="h-screen bg-[#F3EDEC] flex items-center justify-center p-6">
+        <style>{globalStyles}</style>
+        <Toast />
+        <div className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-md">
+          <button onClick={() => setAppMode('selection')} className="mb-8 text-gray-400 font-bold flex items-center gap-2 hover:text-black transition-colors"><ArrowLeft size={16}/> Volver</button>
+          <LogoBIC size="normal" />
+          <h2 className="text-xl font-black mt-6 mb-8 uppercase tracking-tighter">
+            {appMode === 'login_admin' ? 'Identificación Admin' : 'Registro de Datos'}
+          </h2>
+          {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
+          
+          <form onSubmit={appMode === 'login_admin' ? handleAdminLogin : handleEmployeeLogin} className="space-y-4">
+            {appMode === 'login_admin' ? (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Usuario</label>
+                  <div className="relative">
+                    <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <input 
+                      type="text" placeholder="admin" required value={username} onChange={e => setUsername(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#F89332] focus:bg-white transition-all font-bold text-black"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Contraseña</label>
+                  <div className="relative">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <input 
+                      type="password" placeholder="admin123" required value={password} onChange={e => setPassword(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#F89332] focus:bg-white transition-all font-bold text-black"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Número de Empleado</label>
+                  <div className="relative">
+                    <BadgeInfo className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <input 
+                      type="text" placeholder="Ej. 10452" required value={empNumber} onChange={e => setEmpNumber(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nombre Completo</label>
+                  <div className="relative">
+                    <UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <input 
+                      type="text" placeholder="Ej. Juan Pérez" required value={empName} onChange={e => setEmpName(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Turno</label>
+                  <div className="relative">
+                    <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <select 
+                      required value={empShift} onChange={e => setEmpShift(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black appearance-none cursor-pointer"
+                    >
+                      <option value="Matutino">Matutino</option>
+                      <option value="Vespertino">Vespertino</option>
+                      <option value="Nocturno">Nocturno</option>
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
+            <button type="submit" className={`w-full py-4 mt-6 rounded-xl font-bold shadow-md hover:brightness-110 active:scale-[0.98] transition-all uppercase tracking-widest text-lg ${appMode === 'login_admin' ? 'bg-[#F89332] text-black' : 'bg-[#035AE5] text-white'}`}>
+              Entrar
+            </button>
+          </form>
         </div>
       </div>
     );
