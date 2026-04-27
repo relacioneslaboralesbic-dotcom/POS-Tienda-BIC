@@ -16,7 +16,7 @@ import {
   updateDoc, query, orderBy, onSnapshot, writeBatch 
 } from "firebase/firestore";
 
-// Tus credenciales de Firebase
+// Tus credenciales de Firebase (Proyecto: pos-tienda-bic)
 const firebaseConfig = {
   apiKey: "AIzaSyCWpIzsF_Gg6nHIyJFjVCnNYeu3CDryoTk",
   authDomain: "pos-tienda-bic.firebaseapp.com",
@@ -34,6 +34,7 @@ const db = getFirestore(app);
 
 const CATEGORIES = ['Todos', 'Stationery', 'Lighter', 'Shaver', 'Brushes'];
 
+// Estilos globales e impresión
 const globalStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap');
   * { font-family: 'Nunito', 'Avenir Next', sans-serif; }
@@ -50,6 +51,7 @@ const globalStyles = `
 `;
 
 // --- Componentes de Apoyo ---
+
 const ProductBarcode = ({ value }) => {
   if (!value) return <span className="text-[10px] text-gray-300">SIN SKU</span>;
   return (
@@ -92,7 +94,6 @@ const LogoBIC = ({ size = "normal", showText = true }) => (
   </div>
 );
 
-// Componente Sidebar movido fuera de App para evitar advertencias de Vercel/React
 const SidebarItem = ({ icon, label, id, badge, adminView, setAdminView }) => {
   const isActive = adminView === id;
   return (
@@ -113,13 +114,67 @@ const SidebarItem = ({ icon, label, id, badge, adminView, setAdminView }) => {
   );
 };
 
+// Componente para el vale de entrega (se usa para generar la imagen de descarga e impresión)
+const DeliveryNoteTemplate = ({ order }) => {
+  if (!order) return null;
+  return (
+    <div id="printable-ticket" className="bg-white text-black p-10 flex flex-col border-[12px] border-double border-gray-100" style={{ width: '215.9mm', minHeight: '279.4mm' }}>
+      <div className="flex justify-between items-start border-b-4 border-black pb-6">
+        <LogoBIC size="large" />
+        <div className="text-right">
+          <h2 className="text-3xl font-black uppercase">{order.status === 'Aprobado' ? 'Vale de Entrega' : 'Comprobante de Solicitud'}</h2>
+          <p className="font-bold text-gray-500 uppercase">Folio: <span className="text-black">#{order.id_vale}</span></p>
+          <p className="text-sm font-bold text-gray-400 mt-1">{new Date(order.date).toLocaleString()}</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-8 my-8 bg-gray-50 p-6 rounded-2xl border border-gray-200">
+        <div>
+          <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Solicitante</p>
+          <p className="text-xl font-bold uppercase">{order.empName}</p>
+          <p className="font-bold text-gray-600 italic">ID: {order.empNum} • Turno: {order.empShift}</p>
+        </div>
+        <div className="text-right flex flex-col justify-end text-sm font-bold uppercase text-gray-400 italic">BIC SALTILLO • ALMACÉN DE INSUMOS</div>
+      </div>
+      <div className="flex-1">
+        <table className="w-full text-left">
+          <thead><tr className="border-b-2 border-black text-[10px] uppercase font-black text-gray-400"><th className="py-3 px-2">SKU / Barra</th><th className="py-3 px-2">Descripción</th><th className="py-3 px-2 text-center">Cant.</th><th className="py-3 px-2 text-right">Subtotal</th></tr></thead>
+          <tbody className="divide-y divide-gray-100">
+            {order.items.map((it, i) => (
+              <tr key={i} className="text-sm font-bold">
+                <td className="py-4 px-2"><ProductBarcode value={it.code} /></td>
+                <td className="py-4 px-2 uppercase">{it.name}</td>
+                <td className="py-4 px-2 text-center font-black text-lg">{it.quantity}</td>
+                <td className="py-4 px-2 text-right font-black">${(it.price * it.quantity).toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-8 border-t-2 border-black pt-6 flex justify-end">
+        <div className="text-right">
+          <p className="text-gray-400 text-[10px] font-black uppercase">Importe Total:</p>
+          <p className="text-4xl font-black text-[#035AE5]">${order.total.toFixed(2)}</p>
+        </div>
+      </div>
+      <div className="mt-16 grid grid-cols-2 gap-10 text-center">
+        <div className="border-t border-gray-300 pt-4 uppercase text-[10px] font-black text-gray-400">Firma Recibido (Empleado)</div>
+        <div className="border-t border-gray-300 pt-4 uppercase text-[10px] font-black text-gray-400">Sello y Firma Almacén</div>
+      </div>
+      <div className="mt-auto pt-8 flex flex-col items-center">
+        <OrderBarcode value={order.id_vale} />
+        <p className="text-[8px] text-gray-300 font-bold mt-4 tracking-[0.3em]">CONTROL INTERNO BIC • GENERADO DESDE NUBE</p>
+      </div>
+    </div>
+  );
+};
+
 const App = () => {
-  // Navegación y Sesión
+  // Navegación
   const [appMode, setAppMode] = useState('selection'); 
   const [adminView, setAdminView] = useState('dashboard'); 
   const [currentUser, setCurrentUser] = useState(null);
   
-  // Datos Firebase
+  // Datos
   const [products, setProducts] = useState([]);
   const [sales, setSales] = useState([]);
   const [cart, setCart] = useState([]);
@@ -127,7 +182,7 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false);
   
-  // UI States
+  // UI
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [notification, setNotification] = useState(null);
@@ -139,73 +194,69 @@ const App = () => {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [isCartOpenMobile, setIsCartOpenMobile] = useState(false);
 
-  // Login States
+  // Formularios
   const [loginForm, setLoginForm] = useState({ user: '', pass: '', empNum: '', empName: '', empShift: 'Matutino' });
   const [loginError, setLoginError] = useState('');
 
-  // UseCallback asegura que la función sea estable para pasar las reglas del compilador de Vercel
   const notify = useCallback((message, type = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 5000);
   }, []);
 
-  const resetUI = () => {
+  const resetUI = useCallback(() => {
     setLoginForm({ user: '', pass: '', empNum: '', empName: '', empShift: 'Matutino' });
     setLoginError('');
-  };
+    setCart([]);
+    setSearchTerm('');
+    setSelectedCategory('Todos');
+    setIsCartOpenMobile(false);
+  }, []);
 
-  // --- AUTENTICACIÓN ANÓNIMA SILENCIOSA ---
+  // --- AUTENTICACIÓN ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setIsAuthReady(true);
       } else {
         signInAnonymously(auth).catch((error) => {
-          console.error("Error de autenticación segura:", error);
-          // Si falla, permitimos intentar leer por si las reglas son públicas
+          console.error("Error Auth:", error);
           setIsAuthReady(true); 
         });
       }
     });
-
     return () => unsubscribe();
   }, []);
 
-  // --- ESCUCHA EN TIEMPO REAL (FIREBASE) ---
+  // --- ESCUCHA FIREBASE ---
   useEffect(() => {
     if (!isAuthReady) return;
 
-    // Escuchar Inventario
     const unsubInv = onSnapshot(collection(db, "inventory"), (snap) => {
       setProducts(snap.docs.map(d => d.data()));
       setIsLoading(false);
     }, (error) => {
-      console.error("Error Firestore (Inventario):", error);
+      console.error("Error Firestore:", error);
       setIsLoading(false);
-      if (error.code === 'permission-denied') {
-        notify("Atención: Permisos de Firestore denegados. Actualiza tus Reglas de Base de Datos.", "error");
-      }
+      if (error.code === 'permission-denied') notify("Revisa las reglas de Firestore en la consola de Firebase.", "error");
     });
 
-    // Escuchar Historial
     const qHist = query(collection(db, "history"), orderBy("date", "desc"));
     const unsubHist = onSnapshot(qHist, (snap) => {
       setSales(snap.docs.map(d => d.data()));
-    }, (error) => {
-      console.error("Error Firestore (Historial):", error);
-    });
+    }, (error) => console.error("Error Historial:", error));
 
     return () => { unsubInv(); unsubHist(); };
   }, [isAuthReady, notify]);
 
+  // --- HANDLERS ---
   const handleAdminLogin = (e) => {
     e.preventDefault();
     if (loginForm.user === 'admin' && loginForm.pass === 'admin123') {
       setCurrentUser({ name: 'Administrador', role: 'admin' });
       setAppMode('admin');
       setAdminView('dashboard');
-      setLoginError('');
-    } else setLoginError('Acceso denegado: Credenciales incorrectas');
+      resetUI();
+    } else setLoginError('Credenciales incorrectas para Administrador');
   };
 
   const handleEmployeeLogin = (e) => {
@@ -213,68 +264,44 @@ const App = () => {
     if (loginForm.empNum && loginForm.empName) {
       setCurrentUser({ name: loginForm.empName, number: loginForm.empNum, shift: loginForm.empShift, role: 'employee' });
       setAppMode('employee');
-      setLoginError('');
-    } else setLoginError('Por favor, ingresa tus datos completos');
+      resetUI();
+    } else setLoginError('Por favor, ingresa número de nómina y nombre');
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     setAppMode('selection');
-    setCart([]);
-    setSearchTerm('');
-    setSelectedCategory('Todos');
-    setIsCartOpenMobile(false);
-    setLoginError('');
+    resetUI();
   };
 
-  // --- INTEGRACIÓN CON CLOUDINARY PARA FOTOS ---
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onloadend = () => setImagePreview(reader.result);
-    reader.readAsDataURL(file); 
-
     setIsUploading(true);
-    notify("Subiendo imagen a Cloudinary...", "success");
-
+    notify("Subiendo a Cloudinary...", "success");
     try {
       const cloudName = 'dvrluet68';
       const apiKey = '454519176479577';
       const apiSecret = 'O5Jui-cALz43axjlFOkAL4FJ4HU';
       const timestamp = Math.round(Date.now() / 1000);
-
       const str = `timestamp=${timestamp}${apiSecret}`;
       const buffer = new TextEncoder().encode(str);
       const hashBuffer = await crypto.subtle.digest('SHA-1', buffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const signature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
       const formData = new FormData();
       formData.append('file', file);
       formData.append('api_key', apiKey);
       formData.append('timestamp', timestamp);
       formData.append('signature', signature);
-
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-        method: 'POST',
-        body: formData
-      });
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: 'POST', body: formData });
       const data = await res.json();
-      
       if (data.secure_url) {
         setImagePreview(data.secure_url);
-        notify("Imagen lista y guardada", "success");
-      } else {
-        notify("Error procesando imagen", "error");
+        notify("Imagen optimizada y guardada");
       }
-    } catch (error) {
-      console.error(error);
-      notify("Error en la conexión a la nube de imágenes", "error");
-    } finally {
-      setIsUploading(false);
-    }
+    } catch (error) { notify("Fallo al subir imagen", "error"); }
+    finally { setIsUploading(false); }
   };
 
   const saveProduct = async (e) => {
@@ -282,7 +309,6 @@ const App = () => {
     if (isUploading) return notify("Espera a que suba la imagen", "error");
     const fd = new FormData(e.target);
     const productId = editingProduct?.id || Date.now().toString();
-    
     const data = {
       id: productId,
       code: fd.get('code').toUpperCase(),
@@ -292,67 +318,49 @@ const App = () => {
       category: fd.get('category'),
       image: imagePreview || editingProduct?.image || ''
     };
-
     try {
       await setDoc(doc(db, "inventory", productId), data);
       setIsModalOpen(false);
       setEditingProduct(null);
       setImagePreview(null);
-      notify("Producto guardado exitosamente");
-    } catch (err) { 
-      console.error(err);
-      notify("Error al guardar en Firestore. Permisos denegados.", "error"); 
-    }
+      notify("Inventario sincronizado con Firebase");
+    } catch (err) { notify("Error al guardar datos", "error"); }
   };
 
   const handleCSVUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
     notify("Importando inventario...", "success");
     const reader = new FileReader();
     reader.onload = async (event) => {
       const text = event.target.result;
       const lines = text.split('\n');
-      const importedProducts = [];
+      const imported = [];
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
         const parts = line.split(',');
         if (parts.length >= 5) {
-          importedProducts.push({
+          imported.push({
             id: Date.now().toString() + i, 
-            code: parts[0].trim(), 
-            name: parts[1].trim(),
-            price: parseFloat(parts[2]) || 0, 
-            stock: parseInt(parts[3]) || 0,
-            category: parts[4].trim(), 
-            image: ''
+            code: parts[0].trim(), name: parts[1].trim(),
+            price: parseFloat(parts[2]) || 0, stock: parseInt(parts[3]) || 0,
+            category: parts[4].trim(), image: ''
           });
         }
       }
-      
-      if (importedProducts.length > 0) {
-        try {
-          const batch = writeBatch(db);
-          importedProducts.forEach(p => {
-            const docRef = doc(db, "inventory", p.id);
-            batch.set(docRef, p);
-          });
-          await batch.commit();
-          notify(`Se importaron ${importedProducts.length} productos a Firebase.`);
-        } catch (error) {
-          console.error(error);
-          notify("Error guardando en la base de datos", "error");
-        }
+      if (imported.length > 0) {
+        const batch = writeBatch(db);
+        imported.forEach(p => batch.set(doc(db, "inventory", p.id), p));
+        await batch.commit();
+        notify(`Se agregaron ${imported.length} artículos al sistema`);
       }
-      e.target.value = null;
     };
     reader.readAsText(file);
   };
 
   const downloadCSVTemplate = () => {
-    const csv = "code,name,price,stock,category\nBIC-01,PLUMA AZUL,12.50,100,Stationery\n";
+    const csv = "codigo,nombre,precio,stock,categoria\nBIC-01,PLUMA AZUL CRISTAL,12.50,100,Stationery\n";
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -380,17 +388,12 @@ const App = () => {
         script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
         script.onload = capture;
         document.body.appendChild(script);
-      } else {
-        capture();
-      }
+      } else { capture(); }
     }, 500);
   };
 
   const downloadReport = () => {
-    if (sales.length === 0) {
-      notify("No hay ventas para exportar", "error");
-      return;
-    }
+    if (sales.length === 0) return notify("No hay historial para exportar", "error");
     let csv = "Folio,Fecha,Empleado,Turno,Total,Articulos\n";
     sales.forEach(sale => {
       const itemsStr = sale.items.map(i => `${i.quantity}x ${i.name}`).join(" + ");
@@ -400,39 +403,27 @@ const App = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Reporte_TienditaBIC_${new Date().getTime()}.csv`;
+    a.download = `Reporte_General_Tiendita_${Date.now()}.csv`;
     a.click();
-    notify("Descargando reporte...");
   };
 
   const handleApproveOrder = async (order) => {
     try {
       notify("Procesando aprobación...", "success");
-      // 1. Guardar en Historial Firebase
-      const historyRef = doc(db, "history", order.id_vale);
-      await setDoc(historyRef, { ...order, status: 'Aprobado' });
-
-      // 2. Descontar Stock en Firebase
+      await setDoc(doc(db, "history", order.id_vale), { ...order, status: 'Aprobado' });
       for (const item of order.items) {
         const pRef = doc(db, "inventory", item.id);
-        const currentProd = products.find(p => p.id === item.id);
-        if (currentProd) {
-          await updateDoc(pRef, { stock: Math.max(0, currentProd.stock - item.quantity) });
-        }
+        const prod = products.find(p => p.id === item.id);
+        if (prod) await updateDoc(pRef, { stock: Math.max(0, prod.stock - item.quantity) });
       }
-      
-      // Eliminar de pendientes
       setPendingOrders(pendingOrders.filter(o => o.id_vale !== order.id_vale));
-      notify("Pedido autorizado y descontado del inventario", "success");
-    } catch (e) { 
-      console.error(e);
-      notify("Fallo en la conexión. Revisa permisos Firestore.", "error"); 
-    }
+      notify("Pedido autorizado correctamente");
+    } catch (e) { notify("Error en base de datos", "error"); }
   };
 
   const handleRejectOrder = (order) => {
     setPendingOrders(pendingOrders.filter(o => o.id_vale !== order.id_vale));
-    notify(`Pedido #${order.id_vale} rechazado.`, "error");
+    notify(`Pedido #${order.id_vale} cancelado.`, "error");
   };
 
   const handleEmployeeSubmit = () => {
@@ -448,7 +439,6 @@ const App = () => {
       total: sub * 1.16,
       status: 'Pendiente'
     };
-    
     setPendingOrders([order, ...pendingOrders]);
     setSelectedOrderForTicket(order);
     setShowSuccessModal(true);
@@ -456,14 +446,12 @@ const App = () => {
   };
 
   const addToCart = (product) => {
-    if (product?.stock <= 0) return notify("Sin existencias", "error");
+    if (product?.stock <= 0) return notify("Material agotado", "error");
     const existing = cart.find(item => item.id === product.id);
     if (existing) {
-      if (existing.quantity >= product.stock) return notify("Límite de stock", "error");
+      if (existing.quantity >= product.stock) return notify("Existencias máximas", "error");
       setCart(cart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
-    } else {
-      setCart([...cart, { ...product, quantity: 1 }]);
-    }
+    } else { setCart([...cart, { ...product, quantity: 1 }]); }
   };
 
   const updateQuantity = (id, delta) => {
@@ -471,8 +459,7 @@ const App = () => {
       if (item.id === id) {
         const product = products.find(p => p.id === id);
         const maxStock = product?.stock || 0;
-        const newQty = Math.max(1, Math.min(item.quantity + delta, maxStock));
-        return { ...item, quantity: newQty };
+        return { ...item, quantity: Math.max(1, Math.min(item.quantity + delta, maxStock)) };
       }
       return item;
     }));
@@ -485,163 +472,61 @@ const App = () => {
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) && (selectedCategory === 'Todos' || p.category === selectedCategory)
   ), [products, searchTerm, selectedCategory]);
 
-
   // ==========================================
-  // RENDER: PANTALLAS DE ACCESO (SELECCIÓN / LOGIN)
+  // RENDER: PANTALLAS DE ACCESO
   // ==========================================
   if (appMode === 'selection' || appMode.startsWith('login')) {
     return (
       <div className="flex h-screen bg-[#F3EDEC]">
         <style>{globalStyles}</style>
         {notification && <div className={`fixed top-4 right-4 z-[100] p-4 rounded-lg shadow-2xl border-l-4 ${notification.type === 'error' ? 'bg-white border-red-500' : 'bg-white border-green-500'} font-bold`}>{notification.message}</div>}
-        
-        {/* Lado Izquierdo - Diseño visual estilo SaaS */}
         <div className="hidden lg:flex flex-col justify-center items-center w-1/2 p-12 relative overflow-hidden bg-[#035AE5]">
           <div className="relative z-10 w-full max-w-xl">
-            {/* Imagen del Banner (Carga Banner.webp por defecto) */}
-            <img 
-              src="Banner.webp" 
-              alt="Banner Publicitario" 
-              className="w-full h-auto object-contain drop-shadow-2xl rounded-2xl transition-all duration-500 hover:scale-[1.02]"
-              onError={(e) => {
-                // Fallback en caso de que no cargue la imagen local
-                e.target.onerror = null; 
-                e.target.style.display = 'none';
-                e.target.nextSibling.style.display = 'block';
-              }}
-            />
-            {/* Fallback visual (oculto por defecto, se muestra si no hay imagen) */}
-            <div className="hidden bg-white/10 backdrop-blur-md p-12 rounded-3xl border border-white/20 text-center text-white shadow-xl">
-              <h1 className="text-4xl font-bold mb-4 leading-tight">Espacio para Banner</h1>
-              <p className="text-base opacity-80">Sube una imagen llamada <strong>Banner.webp</strong> o <strong>Banner.png</strong> al proyecto para que se muestre aquí automáticamente.</p>
+            <img src="Banner.webp" alt="Banner Planta Saltillo" className="w-full h-auto object-contain drop-shadow-2xl rounded-2xl" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+            <div className="hidden bg-white/10 backdrop-blur-md p-12 rounded-3xl border border-white/20 text-center text-white">
+              <h1 className="text-4xl font-bold mb-4 uppercase">Planta Saltillo</h1>
+              <p className="text-lg opacity-80">Gestión Inteligente de Insumos</p>
             </div>
           </div>
-          {/* Elementos decorativos de fondo */}
           <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full mix-blend-overlay opacity-20 bg-[#F89332]"></div>
-          <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full mix-blend-overlay opacity-20 bg-[#A14EF9]"></div>
         </div>
-
-        {/* Lado Derecho - Formulario de Interacción */}
-        <div className="w-full lg:w-1/2 flex flex-col items-center justify-center p-8 bg-white shadow-[-20px_0_40px_rgba(0,0,0,0.05)] z-20 relative">
-          
-          {appMode !== 'selection' && (
-            <button onClick={() => setAppMode('selection')} className="absolute top-8 left-8 p-2 text-gray-400 hover:text-black transition-colors rounded-lg hover:bg-gray-50 flex items-center gap-2 font-bold text-sm">
-              <ArrowLeft size={18} /> Volver
-            </button>
-          )}
-
+        <div className="w-full lg:w-1/2 flex flex-col items-center justify-center p-8 bg-white z-20 relative">
+          {appMode !== 'selection' && <button onClick={() => setAppMode('selection')} className="absolute top-8 left-8 p-2 text-gray-400 hover:text-black flex items-center gap-2 font-bold text-sm transition-all"><ArrowLeft size={18} /> Volver</button>}
           <div className="w-full max-w-md">
             <div className="flex justify-center mb-10"><LogoBIC size="large" /></div>
-            
-            {/* PANTALLA 1: SELECCIÓN DE PERFIL */}
-            {appMode === 'selection' && (
+            {appMode === 'selection' ? (
               <div className="space-y-4 animate-in fade-in duration-300">
-                <h2 className="text-2xl font-bold text-black text-center mb-8">Selecciona tu Perfil</h2>
-                
-                <button 
-                  onClick={() => { setAppMode('login_employee'); resetUI(); }}
-                  className="w-full bg-white border-2 border-gray-200 p-5 rounded-2xl flex items-center gap-5 hover:border-[#035AE5] hover:shadow-lg transition-all group"
-                >
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-colors group-hover:bg-[#035AE5] group-hover:text-white text-[#035AE5] bg-[#F3EDEC]"><ShoppingBag size={24} /></div>
-                  <div className="text-left flex-1">
-                    <h3 className="text-lg font-bold text-black">Empleado BIC</h3>
-                    <p className="text-sm font-bold text-gray-500">Acceso al Catálogo (Cliente)</p>
-                  </div>
+                <button onClick={() => { setAppMode('login_employee'); resetUI(); }} className="w-full bg-white border-2 border-gray-200 p-5 rounded-3xl flex items-center gap-5 hover:border-[#035AE5] hover:shadow-xl transition-all group">
+                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-[#035AE5] bg-[#F3EDEC] group-hover:bg-[#035AE5] group-hover:text-white"><ShoppingBag size={28} /></div>
+                  <div className="text-left"><h3 className="text-lg font-black text-black uppercase">Soy Empleado BIC</h3><p className="text-sm font-bold text-gray-500">Solicitar Insumos</p></div>
                 </button>
-
-                <button 
-                  onClick={() => { setAppMode('login_admin'); resetUI(); }}
-                  className="w-full border-2 border-transparent p-5 rounded-2xl flex items-center gap-5 shadow-md hover:shadow-xl transition-all bg-[#F89332]"
-                >
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white bg-black/10 backdrop-blur-sm"><ShieldCheck size={24} /></div>
-                  <div className="text-left flex-1">
-                    <h3 className="text-lg font-bold text-black">Administrador</h3>
-                    <p className="text-sm font-bold text-black/70">Gestión de negocio</p>
-                  </div>
+                <button onClick={() => { setAppMode('login_admin'); resetUI(); }} className="w-full bg-[#F89332] p-5 rounded-3xl flex items-center gap-5 shadow-lg hover:brightness-105 transition-all group">
+                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white bg-black/10 group-hover:bg-black/20"><ShieldCheck size={28} /></div>
+                  <div className="text-left"><h3 className="text-lg font-black text-black uppercase">Administrador</h3><p className="text-sm font-bold text-black/60">Gestionar Planta</p></div>
                 </button>
               </div>
-            )}
-
-            {/* PANTALLA 2: LOGIN ADMINISTRADOR */}
-            {appMode === 'login_admin' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 text-left">
-                <h2 className="text-2xl font-bold text-black text-center mb-6">Acceso Administrador</h2>
-                {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
-                
-                <form onSubmit={handleAdminLogin} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Usuario</label>
-                    <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <input 
-                        type="text" placeholder="admin" required value={loginForm.user} onChange={e => setLoginForm({...loginForm, user: e.target.value})}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#F89332] focus:bg-white transition-all font-bold text-black"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Contraseña</label>
-                    <div className="relative">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <input 
-                        type="password" placeholder="admin123" required value={loginForm.pass} onChange={e => setLoginForm({...loginForm, pass: e.target.value})}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#F89332] focus:bg-white transition-all font-bold text-black"
-                      />
-                    </div>
-                  </div>
-                  <button type="submit" className="w-full py-4 mt-6 rounded-xl font-bold text-black text-lg shadow-md hover:brightness-95 active:scale-[0.98] transition-all uppercase tracking-widest bg-[#F89332]">
-                    Entrar al Sistema
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {/* PANTALLA 3: LOGIN EMPLEADO */}
-            {appMode === 'login_employee' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 text-left">
-                <h2 className="text-2xl font-bold text-black text-center mb-6">Registro de Datos</h2>
-                {loginError && <div className="bg-[#DB054B]/10 text-[#DB054B] p-3 rounded-xl text-sm font-bold mb-6 text-center border border-[#DB054B]/20">{loginError}</div>}
-                
-                <form onSubmit={handleEmployeeLogin} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Número de Empleado</label>
-                    <div className="relative">
-                      <BadgeInfo className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <input 
-                        type="text" placeholder="Ej. 10452" required value={loginForm.empNum} onChange={e => setLoginForm({...loginForm, empNum: e.target.value})}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nombre Completo</label>
-                    <div className="relative">
-                      <UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <input 
-                        type="text" placeholder="Ej. Juan Pérez" required value={loginForm.empName} onChange={e => setLoginForm({...loginForm, empName: e.target.value})}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Turno</label>
-                    <div className="relative">
-                      <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                      <select 
-                        required value={loginForm.empShift} onChange={e => setLoginForm({...loginForm, empShift: e.target.value})}
-                        className="w-full pl-11 pr-4 py-3.5 bg-[#F3EDEC] border border-transparent rounded-xl outline-none focus:border-[#035AE5] focus:bg-white transition-all font-bold text-black appearance-none cursor-pointer"
-                      >
-                        <option value="Matutino">Matutino</option>
-                        <option value="Vespertino">Vespertino</option>
-                        <option value="Nocturno">Nocturno</option>
+            ) : (
+              <form onSubmit={appMode === 'login_admin' ? handleAdminLogin : handleEmployeeLogin} className="space-y-4 animate-in slide-in-from-bottom-5 duration-300">
+                <h2 className="text-2xl font-black text-black text-center mb-6 uppercase tracking-tighter">{appMode === 'login_admin' ? 'Identificación Admin' : 'Registro de Solicitante'}</h2>
+                {loginError && <div className="bg-red-50 text-red-500 p-3 rounded-2xl text-center border border-red-100 font-bold text-sm italic animate-pulse">{loginError}</div>}
+                <div className="space-y-4">
+                  {appMode === 'login_admin' ? (
+                    <>
+                      <input type="text" placeholder="Usuario" className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black text-lg focus:ring-4 ring-orange-100 transition-all" value={loginForm.user} onChange={e => setLoginForm({...loginForm, user: e.target.value})} />
+                      <input type="password" placeholder="Contraseña" className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black text-lg focus:ring-4 ring-orange-100 transition-all" value={loginForm.pass} onChange={e => setLoginForm({...loginForm, pass: e.target.value})} />
+                    </>
+                  ) : (
+                    <>
+                      <input type="text" placeholder="No. Nómina (Ej. 10452)" className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black text-lg focus:ring-4 ring-blue-100 transition-all uppercase" value={loginForm.empNum} onChange={e => setLoginForm({...loginForm, empNum: e.target.value})} />
+                      <input type="text" placeholder="Nombre Completo" className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black text-lg focus:ring-4 ring-blue-100 transition-all uppercase" value={loginForm.empName} onChange={e => setLoginForm({...loginForm, empName: e.target.value})} />
+                      <select className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black text-lg appearance-none cursor-pointer" value={loginForm.empShift} onChange={e => setLoginForm({...loginForm, empShift: e.target.value})}>
+                        <option>Matutino</option><option>Vespertino</option><option>Nocturno</option>
                       </select>
-                    </div>
-                  </div>
-                  <button type="submit" className="w-full py-4 mt-6 rounded-xl font-bold text-white text-lg shadow-md hover:brightness-110 active:scale-[0.98] transition-all uppercase tracking-widest bg-[#035AE5]">
-                    Ingresar al Catálogo
-                  </button>
-                </form>
-              </div>
+                    </>
+                  )}
+                </div>
+                <button type="submit" className={`w-full py-5 rounded-3xl font-black text-lg mt-6 shadow-2xl active:scale-95 transition-all uppercase tracking-widest ${appMode === 'login_admin' ? 'bg-[#F89332] text-black' : 'bg-[#035AE5] text-white'}`}>Acceder al Sistema</button>
+              </form>
             )}
           </div>
         </div>
@@ -652,394 +537,164 @@ const App = () => {
   return (
     <div className="flex h-screen bg-[#F3EDEC]">
       <style>{globalStyles}</style>
-      {notification && <div className={`fixed top-4 right-4 z-[100] p-4 rounded-lg shadow-2xl border-l-4 ${notification.type === 'error' ? 'bg-white border-red-500' : 'bg-white border-green-500'} font-bold`}>{notification.message}</div>}
+      <div className="ticket-wrapper"><DeliveryNoteTemplate order={selectedOrderForTicket} /></div>
       
-      {/* Plantilla Impresión Oculta */}
-      <div className="ticket-wrapper">{selectedOrderForTicket && (
-        <div id="printable-ticket" className="bg-white text-black p-10 flex flex-col border-[12px] border-double border-gray-100" style={{ width: '215.9mm', minHeight: '279.4mm' }}>
-          <div className="flex justify-between items-start border-b-4 border-black pb-6">
-            <LogoBIC size="large" />
-            <div className="text-right">
-              <h2 className="text-3xl font-black uppercase">{selectedOrderForTicket.status === 'Aprobado' ? 'Vale de Entrega' : 'Comprobante de Solicitud'}</h2>
-              <p className="font-bold text-gray-500 uppercase">Folio: <span className="text-black">#{selectedOrderForTicket.id_vale}</span></p>
-              <p className="text-sm font-bold text-gray-400 mt-1">{new Date(selectedOrderForTicket.date).toLocaleString()}</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-8 my-8 bg-gray-50 p-6 rounded-2xl border border-gray-200">
-            <div>
-              <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Solicitante</p>
-              <p className="text-xl font-bold uppercase">{selectedOrderForTicket.empName}</p>
-              <p className="font-bold text-gray-600 italic">ID: {selectedOrderForTicket.empNum} • Turno: {selectedOrderForTicket.empShift}</p>
-            </div>
-            <div className="text-right flex flex-col justify-end text-sm font-bold uppercase text-gray-400">BIC SALTILLO • CONTROL DE INSUMOS</div>
-          </div>
-          <div className="flex-1">
-            <table className="w-full text-left">
-              <thead><tr className="border-b-2 border-black text-[10px] uppercase font-black text-gray-400"><th className="py-3 px-2">Código Barra</th><th className="py-3 px-2">Descripción</th><th className="py-3 px-2 text-center">Cant.</th><th className="py-3 px-2 text-right">Subtotal</th></tr></thead>
-              <tbody className="divide-y divide-gray-100">
-                {selectedOrderForTicket.items.map((it, i) => (
-                  <tr key={i} className="text-sm font-bold">
-                    <td className="py-4 px-2"><ProductBarcode value={it.code} /></td>
-                    <td className="py-4 px-2 uppercase">{it.name}</td>
-                    <td className="py-4 px-2 text-center font-black text-lg">{it.quantity}</td>
-                    <td className="py-4 px-2 text-right font-black">${(it.price * it.quantity).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-8 border-t-2 border-black pt-6 flex justify-end">
-            <div className="text-right">
-              <p className="text-gray-400 text-[10px] font-black uppercase">Importe Total:</p>
-              <p className="text-4xl font-black text-[#035AE5]">${selectedOrderForTicket.total.toFixed(2)}</p>
-            </div>
-          </div>
-          <div className="mt-16 grid grid-cols-2 gap-10 text-center">
-            <div className="border-t border-gray-300 pt-4 uppercase text-[10px] font-black text-gray-400">Firma Recibido</div>
-            <div className="border-t border-gray-300 pt-4 uppercase text-[10px] font-black text-gray-400">Autorización Almacén</div>
-          </div>
-          <div className="mt-auto pt-8 flex flex-col items-center">
-            <OrderBarcode value={selectedOrderForTicket.id_vale} />
-            <p className="text-[8px] text-gray-300 font-bold mt-4 tracking-[0.3em]">DOCUMENTO DE CONTROL INTERNO • FIREBASE CLOUD POS</p>
-          </div>
-        </div>
-      )}</div>
-
-      {/* Sidebar Admin */}
       {appMode === 'admin' && (
-        <aside className="hidden md:flex w-20 lg:w-64 bg-white border-r border-gray-200 flex-col z-30 shadow-[5px_0_20px_rgba(0,0,0,0.02)] transition-all duration-300">
-          <div className="h-16 flex items-center justify-center lg:justify-start lg:px-6 border-b border-gray-100 shrink-0">
-            <div className="lg:hidden"><LogoBIC size="small" showText={false} /></div>
-            <div className="hidden lg:block"><LogoBIC size="small" /></div>
-          </div>
-          <nav className="flex-1 py-6 px-3 space-y-1.5 overflow-y-auto hide-scrollbar">
-            <p className="hidden lg:block text-xs font-bold text-gray-400 uppercase tracking-widest px-4 mb-2 mt-2">Gestión Integral</p>
-            <SidebarItem id="dashboard" icon={<LayoutDashboard size={20}/>} label="Resumen" adminView={adminView} setAdminView={setAdminView} />
-            <SidebarItem id="orders" icon={<List size={20}/>} label="Pedidos" badge={pendingOrders.length} adminView={adminView} setAdminView={setAdminView} />
-            <SidebarItem id="inventory" icon={<Package size={20}/>} label="Inventario" adminView={adminView} setAdminView={setAdminView} />
-            <SidebarItem id="history" icon={<History size={20}/>} label="Historial" adminView={adminView} setAdminView={setAdminView} />
+        <aside className="hidden md:flex w-72 bg-white border-r border-gray-100 flex-col z-30 shadow-xl">
+          <div className="p-8 border-b border-gray-50"><LogoBIC size="normal" /></div>
+          <nav className="flex-1 p-6 space-y-3">
+            <SidebarItem id="dashboard" icon={<LayoutDashboard />} label="Dashboard" adminView={adminView} setAdminView={setAdminView} />
+            <SidebarItem id="orders" icon={<List />} label="Solicitudes" badge={pendingOrders.length} adminView={adminView} setAdminView={setAdminView} />
+            <SidebarItem id="inventory" icon={<Package />} label="Almacén Insumos" adminView={adminView} setAdminView={setAdminView} />
+            <SidebarItem id="history" icon={<History />} label="Historial Vales" adminView={adminView} setAdminView={setAdminView} />
           </nav>
-          <div className="p-4 border-t border-gray-100">
-            <div className="hidden lg:block px-4 pb-4">
-               <p className="text-xs font-bold text-black">Administrador</p>
-               <p className="text-[10px] font-bold text-gray-400 uppercase">Sesión Activa</p>
-            </div>
-            <button onClick={handleLogout} className="w-full flex items-center justify-center lg:justify-start gap-3 px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl transition-colors font-bold text-sm">
-              <LogOut size={20}/> <span className="hidden lg:block">Salir</span>
-            </button>
+          <div className="p-6 border-t border-gray-50">
+            <button onClick={handleLogout} className="w-full p-4 text-[#DB054B] font-black uppercase text-xs flex items-center justify-center gap-3 bg-red-50 rounded-2xl hover:bg-red-100 transition-all"><LogOut size={18}/> Cerrar Sesión</button>
           </div>
         </aside>
       )}
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* Header Empleado o Admin Mobile */}
-        <header className="h-16 bg-white border-b border-gray-200 px-4 flex items-center justify-between shrink-0 z-30">
+        <header className="h-20 bg-white border-b border-gray-100 px-6 flex items-center justify-between z-30 shadow-sm">
           <LogoBIC size="small" showText={appMode === 'employee'} />
-          {appMode === 'employee' ? (
-            <div className="flex items-center gap-4">
-              <div className="text-right hidden sm:block">
-                <p className="font-bold text-sm text-black">{currentUser.name}</p>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">ID: {currentUser.number} • {currentUser.shift}</p>
-              </div>
-              <button onClick={handleLogout} className="w-8 h-8 sm:w-auto sm:px-4 sm:py-2 bg-red-50 text-red-500 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors">
-                <LogOut size={16}/> <span className="hidden sm:block">Salir</span>
-              </button>
+          {appMode === 'employee' && (
+            <div className="flex items-center gap-6">
+              <div className="text-right hidden sm:block"><p className="font-black text-sm uppercase">{currentUser.name}</p><p className="text-[9px] text-gray-400 font-black tracking-widest italic uppercase">Nómina: {currentUser.number} • {currentUser.shift}</p></div>
+              <button onClick={handleLogout} className="p-3 bg-[#F3EDEC] rounded-2xl text-gray-500 hover:text-red-500 transition-colors"><LogOut size={20}/></button>
             </div>
-          ) : (
-            <button onClick={handleLogout} className="md:hidden w-8 h-8 rounded-full bg-red-50 flex items-center justify-center text-red-500 font-bold"><LogOut size={14}/></button>
           )}
+          {appMode === 'admin' && <div className="md:hidden"><button onClick={handleLogout} className="p-3 text-red-500"><LogOut/></button></div>}
         </header>
 
-        <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-6 lg:p-10">
-            {isLoading ? (
-              <div className="h-full flex flex-col items-center justify-center space-y-4">
-                <div className="w-12 h-12 border-4 border-[#035AE5] border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-gray-400 font-bold uppercase tracking-widest text-sm animate-pulse">Conectando a Firebase...</p>
+        <div className="flex-1 overflow-y-auto p-6 lg:p-10 hide-scrollbar">
+          {isLoading ? <div className="h-full flex flex-col items-center justify-center space-y-4"><div className="w-12 h-12 border-4 border-[#035AE5] border-t-transparent rounded-full animate-spin"></div><p className="font-black text-xs uppercase text-gray-400 tracking-widest animate-pulse">Sincronizando con la nube...</p></div> :
+          adminView === 'dashboard' && appMode === 'admin' ? (
+            <div className="space-y-10">
+              <h2 className="text-3xl font-black uppercase tracking-tighter">Resumen Planta</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-50"><TrendingUp className="text-[#035AE5] mb-4" size={32}/><p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Movimiento Firebase</p><h3 className="text-4xl font-black">${sales.reduce((a,s)=>a+s.total,0).toFixed(2)}</h3></div>
+                <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-50"><Package className="text-[#F89332] mb-4" size={32}/><p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Insumos Catalogados</p><h3 className="text-4xl font-black">{products.length}</h3></div>
+                <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-50"><History className="text-[#DB054B] mb-4" size={32}/><p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Vales Autorizados</p><h3 className="text-4xl font-black">{sales.length}</h3></div>
               </div>
-            ) : adminView === 'dashboard' && appMode === 'admin' ? (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-black mb-6">Resumen del Día</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="p-3 rounded-xl bg-blue-100 text-[#035AE5]"><TrendingUp size={24} /></div>
-                      <span className="text-xs font-bold text-[#64BF69] bg-green-50 px-2 py-1 rounded-md">+12% hoy</span>
-                    </div>
-                    <p className="text-sm font-bold text-gray-400">Ventas Firebase</p>
-                    <h3 className="text-3xl font-black text-black mt-1">${sales.reduce((a,s)=>a+s.total,0).toFixed(2)}</h3>
-                  </div>
-                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="p-3 rounded-xl bg-orange-100 text-[#F89332]"><Package size={24} /></div>
-                    </div>
-                    <p className="text-sm font-bold text-gray-400">Items en Stock</p>
-                    <h3 className="text-3xl font-black text-black mt-1">{products.reduce((a,p)=>a+p.stock,0)}</h3>
-                  </div>
-                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="p-3 rounded-xl bg-red-100 text-[#DB054B]"><History size={24} /></div>
-                      {pendingOrders.length > 0 && <span className="flex w-3 h-3 bg-[#DB054B] rounded-full animate-pulse"></span>}
-                    </div>
-                    <p className="text-sm font-bold text-gray-400">Vales Emitidos</p>
-                    <h3 className="text-3xl font-black text-black mt-1">{sales.length}</h3>
-                  </div>
+            </div>
+          ) : adminView === 'inventory' && appMode === 'admin' ? (
+            <div className="space-y-8">
+              <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4"><h2 className="text-3xl font-black uppercase tracking-tighter">Almacén de Insumos</h2>
+                <div className="flex gap-2">
+                  <button onClick={downloadCSVTemplate} className="p-3 border rounded-2xl font-black text-[10px] uppercase flex items-center gap-2 hover:bg-gray-50 transition-all"><FileDown size={14}/> Plantilla</button>
+                  <label className="p-3 border rounded-2xl font-black text-[10px] uppercase flex items-center gap-2 cursor-pointer hover:bg-gray-50 transition-all"><FileUp size={14}/> Importar <input type="file" className="hidden" accept=".csv" onChange={handleCSVUpload}/></label>
+                  <button onClick={()=>{setEditingProduct(null); setImagePreview(null); setIsModalOpen(true)}} className="p-3 px-6 bg-[#F89332] rounded-2xl font-black text-[10px] uppercase flex items-center gap-2 shadow-xl hover:scale-105 transition-all"><Plus size={14}/> Nuevo Ingreso</button>
                 </div>
               </div>
-            ) : adminView === 'inventory' && appMode === 'admin' ? (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center mb-8">
-                  <h2 className="text-2xl font-bold text-black">Inventario en la Nube</h2>
-                  <div className="flex gap-2">
-                    <button onClick={downloadCSVTemplate} className="hidden lg:flex text-gray-600 bg-white border border-gray-200 px-4 py-2.5 rounded-xl font-bold text-sm items-center gap-2 shadow-sm hover:bg-gray-50 transition-all"><FileDown size={18} /> Plantilla</button>
-                    <label className="text-gray-600 bg-white border border-gray-200 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-all cursor-pointer"><FileUp size={18} /> Importar<input type="file" accept=".csv" onChange={handleCSVUpload} className="hidden" /></label>
-                    <button onClick={() => { setEditingProduct(null); setImagePreview(null); setIsModalOpen(true); }} className="bg-[#F89332] p-2 px-4 rounded-xl font-bold text-xs flex items-center gap-2 text-black shadow-sm"><Plus size={16}/> Nuevo</button>
-                  </div>
-                </div>
-                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-[#F3EDEC] text-gray-500 text-xs uppercase tracking-wider"><tr><th className="p-4 hidden lg:table-cell">Código</th><th className="p-4">Material</th><th className="p-4 hidden sm:table-cell">Categoría</th><th className="p-4">Precio</th><th className="p-4 text-center">Stock</th><th className="p-4 text-right">Edición</th></tr></thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {products.map(p => (
-                        <tr key={p.id} className="text-sm font-bold hover:bg-gray-50/50 transition-colors">
-                          <td className="p-4 hidden lg:table-cell text-gray-400 text-xs">{p.code || '-'}</td>
-                          <td className="p-4 flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 overflow-hidden shrink-0">{p.image && <img src={p.image} className="w-full h-full object-contain p-1" alt={p.name}/>}</div><span className="uppercase text-black text-sm">{p.name}</span></td>
-                          <td className="p-4 hidden sm:table-cell"><span className="bg-gray-100 text-gray-500 px-2 py-1 rounded-md text-xs">{p.category}</span></td>
-                          <td className="p-4 text-[#035AE5] font-black">${p.price.toFixed(2)}</td>
-                          <td className="p-4 text-center"><span className={`px-2 py-1 rounded-full text-xs font-bold ${p.stock <= 5 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>{p.stock}</span></td>
-                          <td className="p-4 text-right"><button onClick={() => { setEditingProduct(p); setImagePreview(p.image); setIsModalOpen(true); }} className="p-2 text-gray-400 hover:text-[#035AE5] bg-white border border-gray-200 rounded-lg shadow-sm transition-colors"><Edit2 size={16}/></button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : adminView === 'orders' && appMode === 'admin' ? (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-black mb-8 flex items-center gap-3">Pedidos Recibidos {pendingOrders.length > 0 && <span className="bg-[#DB054B] text-white text-sm px-3 py-1 rounded-full">{pendingOrders.length}</span>}</h2>
-                {pendingOrders.length === 0 ? (
-                  <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-16 flex flex-col items-center justify-center text-center">
-                    <div className="bg-[#F3EDEC] p-4 rounded-full text-gray-400 mb-4"><List size={32} /></div>
-                    <p className="font-bold text-black text-lg">No hay pedidos pendientes</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    {pendingOrders.map(order => (
-                      <div key={order.id_vale} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm flex flex-col">
-                        <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-[#F3EDEC]">
-                          <div>
-                            <span className="text-[10px] font-bold text-white bg-black px-2 py-0.5 rounded tracking-widest uppercase">Orden #{order.id_vale}</span>
-                            <h3 className="font-bold text-black mt-2 uppercase">{order.empName}</h3>
-                            <p className="text-xs font-bold text-gray-500 mt-0.5">ID: {order.empNum} • {order.empShift}</p>
-                          </div>
-                          <span className="text-2xl font-black text-black">${order.total.toFixed(2)}</span>
-                        </div>
-                        <div className="p-5 flex-1 flex flex-col">
-                           <ul className="space-y-3 mb-8">
-                            {order.items.map((it, i) => (
-                              <li key={i} className="flex justify-between items-center text-sm font-bold uppercase">
-                                <span className="text-gray-600"><span className="text-[#035AE5] bg-blue-50 px-1.5 py-0.5 rounded mr-2">{it.quantity}x</span> {it.name}</span>
-                                <span className="text-black">${(it.price * it.quantity).toFixed(2)}</span>
-                              </li>
-                            ))}
-                           </ul>
-                           <div className="flex gap-4 mt-auto">
-                             <button onClick={() => handleRejectOrder(order)} className="flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-[#DB054B] bg-white border-2 border-[#DB054B] hover:bg-red-50 transition-colors flex items-center justify-center gap-2 text-xs">Rechazar</button>
-                             <button onClick={() => handleApproveOrder(order)} className="flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-white bg-[#035AE5] hover:scale-[1.02] shadow-xl transition-all flex items-center justify-center gap-2 text-xs"><Check size={18} /> Autorizar</button>
-                           </div>
-                        </div>
-                      </div>
+              <div className="bg-white rounded-[40px] border border-gray-100 overflow-hidden shadow-sm">
+                <table className="w-full text-left">
+                  <thead className="bg-gray-50 text-[9px] uppercase font-black text-gray-400 tracking-widest"><tr><th className="p-6">Material / SKU</th><th className="p-6 text-center">Existencia</th><th className="p-6">P. Unitario</th><th className="p-6 text-right">Acción</th></tr></thead>
+                  <tbody className="divide-y divide-gray-100 font-bold">
+                    {products.map(p => (
+                      <tr key={p.id} className="text-sm hover:bg-gray-50/50 transition-colors">
+                        <td className="p-6 flex items-center gap-4"><div className="w-14 h-14 rounded-2xl bg-gray-50 border border-gray-100 overflow-hidden shadow-inner shrink-0">{p.image && <img src={p.image} className="w-full h-full object-contain p-1" alt={p.name}/>}</div><div><p className="uppercase text-black">{p.name}</p><p className="text-[9px] text-gray-300 font-mono tracking-widest">{p.code}</p></div></td>
+                        <td className="p-6 text-center"><span className={`p-2 px-4 rounded-xl text-[10px] font-black uppercase ${p.stock <= 5 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>{p.stock} pzas</span></td>
+                        <td className="p-6 text-[#035AE5] text-lg font-black">${p.price.toFixed(2)}</td>
+                        <td className="p-6 text-right"><button onClick={()=>{setEditingProduct(p); setImagePreview(p.image); setIsModalOpen(true)}} className="p-3 bg-white border border-gray-100 text-gray-300 hover:text-[#035AE5] rounded-xl shadow-sm hover:scale-110 transition-all"><Edit2 size={16}/></button></td>
+                      </tr>
                     ))}
-                  </div>
-                )}
+                  </tbody>
+                </table>
               </div>
-            ) : adminView === 'history' && appMode === 'admin' ? (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center mb-8"><h2 className="text-2xl font-bold text-black">Historial Aprobado</h2><button onClick={downloadReport} className="bg-white border border-gray-200 text-black px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-all"><Download size={18} /> Exportar CSV</button></div>
-                {sales.length === 0 ? (
-                  <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-16 flex flex-col items-center justify-center text-center"><div className="bg-[#F3EDEC] p-4 rounded-full text-gray-400 mb-4"><History size={32} /></div><p className="font-bold text-black text-lg">Aún no hay aprobaciones</p></div>
-                ) : (
-                  <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-[#F3EDEC] text-gray-500 text-xs uppercase tracking-wider"><tr><th className="p-4">Folio</th><th className="p-4">Fecha</th><th className="p-4">Empleado BIC</th><th className="p-4 text-right">Acción</th></tr></thead>
-                      <tbody className="divide-y divide-gray-50">
-                        {sales.map((s, i) => (
-                          <tr key={i} className="text-sm font-bold hover:bg-gray-50/50 transition-colors">
-                            <td className="p-4 text-black">#{s.id_vale}</td>
-                            <td className="p-4 text-gray-500">{new Date(s.date).toLocaleString()}</td>
-                            <td className="p-4"><p className="text-black uppercase">{s.empName}</p><p className="text-[10px] text-gray-400">ID: {s.empNum}</p></td>
-                            <td className="p-4 text-right">
-                              <span className="font-black text-[#035AE5] block">${s.total.toFixed(2)}</span>
-                              <div className="flex justify-end gap-2 mt-2">
-                                <button onClick={() => handleDownloadImage(s)} className="p-2 bg-blue-50 text-[#035AE5] rounded-lg hover:bg-blue-100 transition-colors"><Download size={14}/></button>
-                                <button onClick={() => { setSelectedOrderForTicket(s); setTimeout(() => window.print(), 500); }} className="p-2 bg-gray-100 text-black rounded-lg hover:bg-gray-200 transition-colors"><Printer size={14}/></button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="h-full flex flex-col">
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6 flex flex-col gap-4">
-                  <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input type="text" placeholder="Buscar material..." className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-gray-200 bg-[#F3EDEC] text-black focus:outline-none focus:ring-2 focus:ring-[#035AE5] focus:bg-white transition-all font-bold text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                  </div>
-                  <div className="flex gap-2 overflow-x-auto hide-scrollbar">
-                    {CATEGORIES.map(cat => (
-                      <button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-5 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all border ${selectedCategory === cat ? 'bg-[#035AE5] text-white border-[#035AE5] shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>{cat}</button>
-                    ))}
+            </div>
+          ) : adminView === 'orders' && appMode === 'admin' ? (
+            <div className="space-y-8">
+              <h2 className="text-3xl font-black uppercase tracking-tighter">Pedidos Pendientes</h2>
+              {pendingOrders.map(order => (
+                <div key={order.id_vale} className="bg-white rounded-[40px] border border-gray-100 p-8 flex flex-col md:flex-row justify-between md:items-center gap-6 shadow-sm hover:shadow-xl transition-all">
+                  <div><p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Vale ID: #{order.id_vale}</p><h4 className="font-black text-2xl uppercase tracking-tighter">{order.empName}</h4><p className="text-xs font-bold text-gray-500 italic uppercase">{order.items.map(it => `${it.quantity}x ${it.name}`).join(' | ')}</p></div>
+                  <div className="flex items-center gap-8">
+                    <p className="text-3xl font-black text-[#035AE5] tracking-tighter">${order.total.toFixed(2)}</p>
+                    <div className="flex gap-3">
+                      <button onClick={()=>handleRejectOrder(order)} className="p-4 text-red-500 bg-red-50 rounded-3xl hover:bg-red-100 transition-colors shadow-sm"><X size={24}/></button>
+                      <button onClick={()=>handleApproveOrder(order)} className="p-4 text-white bg-[#035AE5] rounded-3xl shadow-xl hover:scale-110 transition-all"><Check size={24}/></button>
+                    </div>
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto hide-scrollbar pb-20 lg:pb-0">
-                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {filteredProducts.map(p => (
-                      <div key={p.id} onClick={() => addToCart(p)} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-[#035AE5] active:scale-[0.98] transition-all cursor-pointer relative flex flex-col">
-                        <div className="w-full aspect-square rounded-xl bg-[#F3EDEC] mb-4 flex items-center justify-center overflow-hidden border border-gray-50 relative p-2">
-                          {p.image ? <img src={p.image} alt={p.name} className="w-full h-full object-contain" /> : <div className="w-full h-full flex items-center justify-center rounded-lg bg-gray-200"><Package className="text-gray-400" size={32} /></div>}
-                          {p.stock <= 5 && p.stock > 0 && <span className="absolute top-2 right-2 bg-[#FFCC00] text-black px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">Poco Stock</span>}
-                        </div>
-                        <h4 className="font-bold text-sm h-10 line-clamp-2 uppercase leading-tight mb-1">{p.name}</h4>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-3">{p.category}</p>
-                        <div className="mt-auto flex justify-between items-center">
-                          <p className="text-lg font-black text-[#035AE5]">${p.price.toFixed(2)}</p>
-                          <div className="w-8 h-8 rounded-full bg-[#F89332] flex items-center justify-center text-white shadow-sm hover:scale-110 transition-transform"><Plus size={16} strokeWidth={3}/></div>
-                        </div>
-                        {p.stock <= 0 && <div className="absolute inset-0 bg-white/80 backdrop-blur-[2px] rounded-2xl flex items-center justify-center font-black text-white"><span className="bg-[#DB054B] px-3 py-1.5 rounded-lg text-xs uppercase shadow-md">Agotado</span></div>}
-                      </div>
-                    ))}
+              ))}
+              {pendingOrders.length === 0 && <div className="text-center py-24 opacity-20"><List size={80} className="mx-auto"/><p className="font-black uppercase mt-6 tracking-[0.3em]">Cero pendientes</p></div>}
+            </div>
+          ) : adminView === 'history' && appMode === 'admin' ? (
+             <div className="space-y-8">
+                <div className="flex justify-between items-center mb-6"><h2 className="text-3xl font-black uppercase tracking-tighter">Historial General</h2><button onClick={downloadReport} className="p-3 px-6 bg-white border border-gray-200 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all shadow-sm"><Download size={14}/> Exportar CSV</button></div>
+                {sales.map((s, i) => (
+                  <div key={i} className="bg-white p-8 rounded-[40px] border border-gray-50 flex justify-between items-center shadow-sm hover:shadow-md transition-all group">
+                    <div><div className="flex items-center gap-3 mb-2"><span className="p-1 px-2 bg-gray-100 rounded-lg text-[9px] font-black uppercase tracking-widest">#{s.id_vale}</span><span className="text-[10px] text-gray-300 font-bold uppercase">{new Date(s.date).toLocaleString()}</span></div><h4 className="font-black text-xl uppercase text-black">{s.empName}</h4></div>
+                    <div className="flex items-center gap-6"><p className="text-2xl font-black text-[#035AE5] tracking-tighter">${s.total.toFixed(2)}</p><button onClick={()=>handleDownloadImage(s)} className="p-4 bg-blue-50 text-[#035AE5] rounded-[24px] group-hover:scale-110 transition-all shadow-sm"><Printer size={24}/></button></div>
                   </div>
+                ))}
+             </div>
+          ) : (
+            <div className="h-full">
+              <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-50 mb-10 flex flex-col gap-6">
+                <div className="relative"><Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300" size={24}/><input type="text" placeholder="¿Qué insumo necesitas hoy?..." className="w-full pl-16 pr-6 py-5 bg-[#F3EDEC] rounded-[30px] font-black text-xl outline-none focus:ring-4 ring-blue-50 transition-all" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div>
+                <div className="flex gap-2 overflow-x-auto hide-scrollbar">
+                  {CATEGORIES.map(cat => <button key={cat} onClick={()=>setSelectedCategory(cat)} className={`p-4 px-10 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all ${selectedCategory === cat ? 'bg-black text-white shadow-2xl scale-105' : 'bg-white text-gray-400 border border-gray-100 hover:bg-gray-50'}`}>{cat}</button>)}
                 </div>
               </div>
-            )}
-          </div>
-
-          {/* Panel Lateral Carrito (Desktop) */}
-          {appMode === 'employee' && (
-            <aside className="hidden lg:flex w-96 border-l border-gray-200 bg-white flex-col shadow-[-10px_0_20px_rgba(0,0,0,0.03)] z-20">
-              <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="font-bold text-lg text-black">Mi Pedido</h2>
-                <span className="bg-[#F3EDEC] text-[#035AE5] px-2 py-1 rounded-md text-xs font-bold">{cart.reduce((a, b) => a + b.quantity, 0)} items</span>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 hide-scrollbar">
-                {cart.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-3"><ShoppingBag size={48} opacity={0.2} /><p className="font-bold text-sm">Tu bandeja está vacía</p></div>
-                ) : cart.map(item => (
-                  <div key={item.id} className="p-3 bg-[#F3EDEC] rounded-xl border border-transparent hover:border-gray-200 transition-colors flex flex-col gap-2">
-                    <div className="flex justify-between font-bold text-sm"><span className="flex-1 line-clamp-2 uppercase pr-2 leading-tight">{item.name}</span><button onClick={() => setCart(cart.filter(c=>c.id!==item.id))} className="text-gray-400 hover:text-[#DB054B]"><Trash2 size={14}/></button></div>
-                    <div className="flex justify-between items-center"><div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1"><button onClick={() => updateQuantity(item.id, -1)} className="px-1 text-gray-500 hover:text-black"><Minus size={14}/></button><span className="font-bold text-sm w-6 text-center">{item.quantity}</span><button onClick={() => updateQuantity(item.id, 1)} className="px-1 text-gray-500 hover:text-black"><Plus size={14}/></button></div><span className="font-black text-[#035AE5]">${(item.price * item.quantity).toFixed(2)}</span></div>
+              <div className="grid grid-cols-2 md:grid-cols-2 xl:grid-cols-4 gap-8 pb-32">
+                {filteredProducts.map(p => (
+                  <div key={p.id} onClick={()=>addToCart(p)} className="bg-white p-5 rounded-[50px] border border-gray-50 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all cursor-pointer relative flex flex-col group overflow-hidden">
+                    <div className="aspect-square bg-gray-50 rounded-[40px] mb-6 overflow-hidden flex items-center justify-center p-6 relative shadow-inner">
+                      {p.image ? <img src={p.image} className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-110" alt={p.name}/> : <Package className="opacity-10" size={60}/>}
+                      {p.stock <= 5 && p.stock > 0 && <span className="absolute top-6 right-6 bg-[#FFCC00] text-black px-3 py-1 rounded-full text-[9px] font-black uppercase shadow-lg border-2 border-white">Poco Stock</span>}
+                      {p.stock <= 0 && <div className="absolute inset-0 bg-white/80 backdrop-blur-[3px] flex items-center justify-center font-black text-[#DB054B] uppercase tracking-[0.2em] text-sm border-4 border-red-50">Agotado</div>}
+                    </div>
+                    <h4 className="font-black text-xs h-10 line-clamp-2 uppercase leading-tight mb-4 tracking-tighter px-2">{p.name}</h4>
+                    <div className="mt-auto flex justify-between items-center px-2"><p className="text-2xl font-black text-[#035AE5] tracking-tighter leading-none">${p.price.toFixed(2)}</p><div className="p-3 bg-[#F89332] rounded-full text-white shadow-xl group-hover:rotate-90 transition-transform"><Plus size={18} strokeWidth={3}/></div></div>
                   </div>
                 ))}
               </div>
-              <div className="p-5 border-t border-gray-100 space-y-3 shadow-[0_-5px_15px_rgba(0,0,0,0.02)]">
-                <div className="flex justify-between text-gray-500 text-sm font-bold"><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
-                <div className="flex justify-between font-black text-2xl text-black"><span>Total</span><span>${total.toFixed(2)}</span></div>
-                <button onClick={handleEmployeeSubmit} disabled={cart.length === 0} className="w-full py-4 bg-[#F89332] text-black font-bold rounded-xl shadow-md disabled:opacity-50 hover:brightness-95 active:scale-[0.98] transition-all uppercase tracking-widest">ENVIAR PEDIDO</button>
-              </div>
-            </aside>
+            </div>
           )}
         </div>
+
+        {/* Panel Lateral Carrito Cliente (Desktop) */}
+        {appMode === 'employee' && (
+          <aside className="hidden lg:flex w-[420px] bg-white border-l border-gray-100 flex-col shadow-[-10px_0_40px_rgba(0,0,0,0.02)] z-20">
+            <div className="p-10 border-b border-gray-50 flex justify-between items-center bg-[#F3EDEC]/50"><h3 className="font-black text-2xl flex items-center gap-3 tracking-tighter uppercase"><ShoppingBag size={28}/> Mi Bandeja</h3><span className="bg-[#035AE5] text-white px-4 py-2 rounded-full text-[10px] font-black shadow-lg uppercase">{cart.length} Insumos</span></div>
+            <div className="flex-1 overflow-y-auto p-8 space-y-6 hide-scrollbar">
+              {cart.map(item => (
+                <div key={item.id} className="p-6 bg-white rounded-[35px] border border-gray-50 flex flex-col gap-4 shadow-sm hover:border-blue-100 transition-colors">
+                  <div className="flex justify-between font-black text-xs uppercase pr-6 leading-relaxed"><span>{item.name}</span><button onClick={()=>setCart(cart.filter(c=>c.id!==item.id))} className="text-gray-200 hover:text-[#DB054B] transition-colors"><Trash2 size={18}/></button></div>
+                  <div className="flex justify-between items-center"><span className="font-black text-2xl text-[#035AE5] tracking-tighter">${(item.price * item.quantity).toFixed(2)}</span><div className="flex items-center gap-6 bg-[#F3EDEC] p-2 rounded-2xl border border-gray-100"><button onClick={()=>updateQuantity(item.id,-1)} className="text-gray-400 hover:text-black transition-colors"><Minus size={16}/></button><span className="font-black text-xl w-6 text-center">{item.quantity}</span><button onClick={()=>updateQuantity(item.id,1)} className="text-gray-400 hover:text-black transition-colors"><Plus size={16}/></button></div></div>
+                </div>
+              ))}
+              {cart.length === 0 && <div className="text-center py-24 opacity-10 italic"><ShoppingCart size={60} className="mx-auto"/><p className="font-black uppercase mt-6 text-xs tracking-[0.5em]">Bandeja Vacía</p></div>}
+            </div>
+            <div className="p-10 border-t border-gray-100 space-y-8 shadow-inner">
+              <div className="flex justify-between items-end"><p className="text-[11px] text-gray-300 font-black uppercase tracking-[0.3em]">Total (Inc. IVA)</p><h3 className="text-5xl font-black text-[#035AE5] tracking-tighter leading-none">${total.toFixed(2)}</h3></div>
+              <button onClick={handleEmployeeSubmit} disabled={cart.length === 0} className="w-full p-6 bg-[#F89332] text-black font-black rounded-[30px] shadow-2xl disabled:opacity-30 uppercase tracking-[0.2em] text-lg transition-all hover:brightness-105 active:scale-95">ENVIAR PEDIDO</button>
+            </div>
+          </aside>
+        )}
       </main>
 
-      {/* Navegación Móvil */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 h-20 flex items-center justify-around px-2 z-40 pb-safe shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
-        {appMode === 'admin' ? (
-          [
-            { id:'dashboard', icon: <LayoutDashboard size={22}/>, label: 'Inicio' },
-            { id:'orders', icon: <List size={22}/>, label: 'Pedidos', badge: pendingOrders.length },
-            { id:'inventory', icon: <Package size={22}/>, label: 'Stock' },
-            { id:'history', icon: <History size={22}/>, label: 'Historial' }
-          ].map(item => (
-            <button key={item.id} onClick={() => setAdminView(item.id)} className={`flex flex-col items-center gap-1 w-1/4 transition-colors relative ${adminView === item.id ? 'text-[#035AE5]' : 'text-gray-400'}`}>
-              <div className={`p-1.5 rounded-lg ${adminView === item.id ? 'bg-blue-100' : ''}`}>{item.icon}</div>
-              {item.badge > 0 && <span className="absolute top-0 right-4 w-2.5 h-2.5 bg-[#DB054B] rounded-full border-2 border-white"></span>}
-              <span className="text-[10px] font-bold uppercase">{item.label}</span>
-            </button>
-          ))
-        ) : appMode === 'employee' ? (
-          <div className="w-full px-6 flex justify-end">
-            {cart.length > 0 && (
-              <button onClick={() => setIsCartOpenMobile(true)} className="absolute -top-6 right-6 w-16 h-16 bg-[#F89332] text-black rounded-full shadow-2xl flex items-center justify-center z-40 active:scale-90 transition-transform border-4 border-white">
-                <ShoppingBag size={24} />
-                <span className="absolute -top-1 -right-1 bg-[#DB054B] text-white text-[10px] font-bold w-6 h-6 rounded-full flex items-center justify-center border-2 border-white shadow-sm">{cart.reduce((a, b) => a + b.quantity, 0)}</span>
-              </button>
-            )}
-          </div>
-        ) : null}
-      </nav>
-
-      {/* Modal Carrito Móvil */}
-      {isCartOpenMobile && (
-        <div className="fixed inset-0 bg-black/40 z-[60] flex flex-col justify-end">
-          <div className="bg-white h-[85vh] rounded-t-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-full duration-300">
-            <div className="flex justify-between items-center p-4 border-b border-gray-100">
-              <h2 className="font-bold text-lg px-2">Tu Pedido</h2>
-              <button onClick={() => setIsCartOpenMobile(false)} className="p-2 bg-gray-100 rounded-full"><X size={20}/></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 hide-scrollbar">
-                {cart.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-3"><ShoppingBag size={48} opacity={0.2} /><p className="font-bold text-sm">Tu bandeja está vacía</p></div>
-                ) : cart.map(item => (
-                  <div key={item.id} className="p-3 bg-[#F3EDEC] rounded-xl border border-transparent hover:border-gray-200 transition-colors flex flex-col gap-2">
-                    <div className="flex justify-between font-bold text-sm"><span className="flex-1 line-clamp-2 uppercase pr-2 leading-tight">{item.name}</span><button onClick={() => setCart(cart.filter(c=>c.id!==item.id))} className="text-gray-400 hover:text-[#DB054B]"><Trash2 size={14}/></button></div>
-                    <div className="flex justify-between items-center"><div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1"><button onClick={() => updateQuantity(item.id, -1)} className="px-1 text-gray-500 hover:text-black"><Minus size={14}/></button><span className="font-bold text-sm w-6 text-center">{item.quantity}</span><button onClick={() => updateQuantity(item.id, 1)} className="px-1 text-gray-500 hover:text-black"><Plus size={14}/></button></div><span className="font-black text-[#035AE5]">${(item.price * item.quantity).toFixed(2)}</span></div>
-                  </div>
-                ))}
-              </div>
-              <div className="p-5 border-t border-gray-100 space-y-3 shadow-[0_-5px_15px_rgba(0,0,0,0.02)]">
-                <div className="flex justify-between font-black text-2xl text-black"><span>Total</span><span>${total.toFixed(2)}</span></div>
-                <button onClick={handleEmployeeSubmit} disabled={cart.length === 0} className="w-full py-4 bg-[#F89332] text-black font-bold rounded-xl shadow-md disabled:opacity-50 hover:brightness-95 active:scale-[0.98] transition-all uppercase tracking-widest">ENVIAR PEDIDO</button>
-              </div>
-          </div>
+      {/* Navegación y Modales Móviles */}
+      {isCartOpenMobile && <div className="fixed inset-0 bg-black/60 z-[100] flex flex-col justify-end backdrop-blur-sm"><div className="bg-white h-[85vh] rounded-t-[50px] flex flex-col shadow-2xl animate-in slide-in-from-bottom-full duration-300"><div className="p-6 border-b flex justify-between items-center"><h2 className="font-black text-xl px-4 tracking-tighter uppercase">TU PEDIDO</h2><button onClick={()=>setIsCartOpenMobile(false)} className="p-3 bg-gray-100 rounded-full"><X size={20}/></button></div><div className="flex-1 overflow-y-auto hide-scrollbar"><div className="p-8 space-y-4">{cart.map(item => (<div key={item.id} className="p-5 bg-gray-50 rounded-[35px] flex flex-col gap-3"><div className="flex justify-between font-black text-xs uppercase pr-4"><span>{item.name}</span><button onClick={()=>setCart(cart.filter(c=>c.id!==item.id))} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button></div><div className="flex justify-between items-center"><span className="font-black text-2xl text-[#035AE5] tracking-tighter">${(item.price * item.quantity).toFixed(2)}</span><div className="flex items-center gap-6 bg-white p-2 rounded-2xl border"><button onClick={()=>updateQuantity(item.id,-1)} className="text-gray-400"><Minus size={16}/></button><span className="font-black text-lg w-6 text-center">{item.quantity}</span><button onClick={()=>updateQuantity(item.id,1)} className="text-gray-400"><Plus size={16}/></button></div></div></div>))}</div></div><div className="p-10 border-t border-gray-100 space-y-6 shadow-inner"><div className="flex justify-between items-end"><p className="text-xs text-gray-400 font-black uppercase tracking-widest">Total Estimado</p><h3 className="text-4xl font-black text-[#035AE5] tracking-tighter leading-none">${total.toFixed(2)}</h3></div><button onClick={handleEmployeeSubmit} disabled={cart.length === 0} className="w-full p-6 bg-[#F89332] text-black font-black rounded-3xl shadow-2xl uppercase tracking-[0.2em]">ENVIAR PEDIDO</button></div></div></div>}
+      
+      {showSuccessModal && <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white p-12 rounded-[60px] shadow-2xl max-w-md w-full text-center border-b-[20px] border-green-500 animate-in zoom-in-95 duration-200"><div className="w-24 h-24 bg-green-50 text-green-500 rounded-full flex items-center justify-center mb-8 mx-auto shadow-inner animate-bounce"><CheckCircle size={48} /></div><h2 className="text-3xl font-black uppercase tracking-tighter mb-4">¡Solicitud Enviada!</h2><p className="text-gray-500 font-bold mb-10 italic text-sm leading-relaxed px-2 uppercase tracking-wide">Descarga tu vale y preséntalo en almacén cuando te avisemos que está listo.</p><div className="space-y-4"><button onClick={()=>handleDownloadImage(selectedOrderForTicket)} className="w-full p-6 bg-[#035AE5] text-white rounded-[30px] font-black text-sm flex items-center justify-center gap-4 shadow-xl shadow-blue-500/30 hover:scale-105 transition-all uppercase tracking-widest"><Download size={22} /> Descargar Vale</button><button onClick={()=>{setShowSuccessModal(false); setSelectedOrderForTicket(null);}} className="w-full p-4 text-gray-300 font-black uppercase text-[10px] tracking-[0.4em] hover:text-black">Cerrar Ventana</button></div></div></div>}
+      
+      {isModalOpen && <div className="fixed inset-0 bg-black/70 z-[150] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white w-full max-w-xl rounded-[60px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh] border-b-[15px] border-[#F89332] animate-in slide-in-from-bottom-10 duration-300"><div className="flex justify-between items-center p-10 border-b border-gray-50 bg-[#F3EDEC]/40"><h2 className="text-2xl font-black uppercase tracking-tighter">{editingProduct ? 'Modificar Registro' : 'Alta de Material'}</h2><button onClick={()=>setIsModalOpen(false)} className="p-3 bg-white rounded-full text-gray-300 hover:text-black shadow-sm transition-colors"><X size={20}/></button></div><form onSubmit={saveProduct} className="p-10 overflow-y-auto space-y-8 hide-scrollbar">
+        <div className="flex items-center gap-8"><div className="w-32 h-32 rounded-[40px] bg-gray-50 border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">{imagePreview ? <img src={imagePreview} alt="Preview" className="w-full h-full object-contain" /> : <ImageIcon className="text-gray-300" size={40} />}</div><div className="flex-1 space-y-4"><label className={`block w-full p-5 rounded-2xl border-2 border-dashed text-center font-black text-[10px] uppercase tracking-widest cursor-pointer transition-all ${isUploading ? 'bg-gray-100 animate-pulse' : 'bg-white hover:border-[#035AE5] hover:text-[#035AE5]'}`}>{isUploading ? 'Subiendo a Cloudinary...' : 'Cargar Foto Insumo'}<input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading}/></label><p className="text-[9px] text-gray-300 font-black uppercase text-center tracking-widest">Formatos: JPG, PNG, WEBP</p></div></div>
+        <div className="grid grid-cols-3 gap-6">
+          <div className="col-span-1 space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Código BIC</label><input name="code" defaultValue={editingProduct?.code} className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black uppercase tracking-widest text-sm" placeholder="EJ. BIC-01"/></div>
+          <div className="col-span-2 space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nombre Comercial</label><input name="name" defaultValue={editingProduct?.name} required className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black uppercase text-sm" placeholder="EJ. PLUMA AZUL CRISTAL"/></div>
         </div>
-      )}
-
-      {/* Modal Éxito Empleado */}
-      {showSuccessModal && (
-        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white p-10 rounded-[40px] shadow-2xl max-w-md w-full text-center border-b-[10px] border-green-500 animate-in zoom-in-95 duration-200">
-            <div className="w-20 h-20 bg-green-50 text-green-500 rounded-full flex items-center justify-center mb-6 mx-auto shadow-inner"><CheckCircle size={40} /></div>
-            <h2 className="text-2xl font-black uppercase tracking-tighter mb-2">¡Solicitud Enviada!</h2>
-            <p className="text-gray-500 font-bold mb-8 italic text-sm leading-relaxed px-2">Guarda tu comprobante digital. Te avisaremos cuando el material esté listo para entrega.</p>
-            <div className="space-y-3">
-              <button onClick={() => handleDownloadImage(selectedOrderForTicket)} className="w-full p-5 bg-[#035AE5] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-3 shadow-lg hover:scale-[1.02] transition-all"><Download size={20} /> DESCARGAR COMPROBANTE</button>
-              <button onClick={() => {setShowSuccessModal(false); setSelectedOrderForTicket(null);}} className="w-full p-4 text-gray-400 font-black uppercase text-xs tracking-widest hover:text-black">Cerrar Ventana</button>
-            </div>
-          </div>
+        <div className="grid grid-cols-2 gap-6">
+          <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Precio Unitario ($)</label><input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black text-xl" /></div>
+          <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Existencia Planta</label><input name="stock" type="number" defaultValue={editingProduct?.stock} required className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black text-xl" /></div>
         </div>
-      )}
-
-      {/* Modal Admin Inventario */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-xl rounded-[50px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh] border-b-[10px] border-[#F89332] animate-in slide-in-from-bottom-10 duration-300">
-            <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-[#F3EDEC]/30"><h2 className="text-xl font-black uppercase tracking-tighter">{editingProduct ? 'Modificar Registro' : 'Nuevo Material'}</h2><button onClick={() => setIsModalOpen(false)} className="p-2 bg-white rounded-full shadow-sm text-gray-400 hover:text-black transition-colors"><X size={18}/></button></div>
-            <form onSubmit={saveProduct} className="p-8 overflow-y-auto space-y-8 hide-scrollbar">
-              <div className="flex items-center gap-8">
-                <div className="w-32 h-32 rounded-[30px] bg-gray-50 border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">{imagePreview ? <img src={imagePreview} alt="Vista Previa" className="w-full h-full object-contain" /> : <ImageIcon className="text-gray-200" size={40} />}</div>
-                <div className="flex-1 space-y-4">
-                  <label className={`block w-full p-5 rounded-2xl border-2 border-dashed text-center font-black text-[10px] uppercase tracking-widest cursor-pointer transition-all ${isUploading ? 'bg-gray-100 text-gray-400' : 'bg-white hover:border-[#035AE5] hover:text-[#035AE5]'}`}>{isUploading ? 'Subiendo...' : 'Cargar Foto de Cloudinary'}<input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading}/></label>
-                  <p className="text-[9px] text-gray-300 font-bold uppercase text-center tracking-widest">Sube la foto para guardarla de forma segura</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-6">
-                <div className="col-span-1 space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Código BIC</label><input name="code" defaultValue={editingProduct?.code} className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-bold uppercase focus:border-[#035AE5]" placeholder="EJ. BIC-01" /></div>
-                <div className="col-span-2 space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nombre Comercial</label><input name="name" defaultValue={editingProduct?.name} required className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-bold uppercase focus:border-[#035AE5]" placeholder="EJ. PLUMA AZUL" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Precio Unitario ($)</label><input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-bold text-lg focus:border-[#035AE5]" /></div>
-                <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Existencia Actual</label><input name="stock" type="number" defaultValue={editingProduct?.stock} required className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-bold text-lg focus:border-[#035AE5]" /></div>
-              </div>
-              <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Categoría del Insumo</label><select name="category" defaultValue={editingProduct?.category || 'Stationery'} className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-bold uppercase tracking-widest appearance-none cursor-pointer focus:border-[#035AE5]">{CATEGORIES.slice(1).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-              <button type="submit" disabled={isUploading} className="w-full p-6 bg-[#F89332] text-black font-black rounded-3xl shadow-2xl mt-4 disabled:opacity-50 uppercase tracking-widest transition-all hover:brightness-95 active:scale-[0.98]">Guardar en Firestore</button>
-            </form>
-          </div>
-        </div>
-      )}
+        <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Categoría del Insumo</label><select name="category" defaultValue={editingProduct?.category || 'Stationery'} className="w-full p-4 bg-[#F3EDEC] rounded-2xl outline-none font-black uppercase tracking-widest appearance-none cursor-pointer">{CATEGORIES.slice(1).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+        <button type="submit" disabled={isUploading} className="w-full p-6 bg-[#F89332] text-black font-black rounded-[30px] shadow-2xl mt-4 disabled:opacity-50 uppercase tracking-[0.2em] transition-all hover:scale-[1.02] active:scale-95">Sincronizar Material</button>
+      </form></div></div>}
+      
+      {appMode === 'employee' && cart.length > 0 && <button onClick={()=>setIsCartOpenMobile(true)} className="lg:hidden fixed bottom-10 right-6 w-20 h-20 bg-[#F89332] text-black rounded-full shadow-2xl flex items-center justify-center z-50 border-4 border-white animate-bounce"><ShoppingBag size={28}/><span className="absolute --top-1 -right-1 bg-[#DB054B] text-white text-[11px] font-black w-7 h-7 rounded-full flex items-center justify-center border-2 border-white">{cart.reduce((a, b) => a + b.quantity, 0)}</span></button>}
     </div>
   );
 };
