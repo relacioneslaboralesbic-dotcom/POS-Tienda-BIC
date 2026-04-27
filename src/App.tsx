@@ -83,7 +83,7 @@ const OrderBarcode = ({ value }) => (
 
 // --- Componente Logo BIC ---
 const LogoBIC = ({ size = "normal", showText = true }) => (
-  <div className="flex items-center gap-3">
+  <div className="flex items-center gap-3 z-20">
     <img 
       src="Logo.webp" 
       alt="Logo BIC" 
@@ -108,7 +108,7 @@ const LogoBIC = ({ size = "normal", showText = true }) => (
 );
 
 const App = () => {
-  // Estados de Navegación Global
+  // Estados de Navegación
   const [appMode, setAppMode] = useState('selection'); 
   const [adminView, setAdminView] = useState('dashboard'); 
   const [currentUser, setCurrentUser] = useState(null);
@@ -120,7 +120,7 @@ const App = () => {
   const [pendingOrders, setPendingOrders] = useState([]);
   const [cart, setCart] = useState([]);
   
-  // Estados UI y Vales
+  // Estados UI
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [notification, setNotification] = useState(null);
@@ -132,25 +132,22 @@ const App = () => {
   const [selectedOrderForTicket, setSelectedOrderForTicket] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // Formularios de Login
+  // Formularios
   const [loginError, setLoginError] = useState('');
-  // Admin Login
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  // Empleado Login
   const [empNumber, setEmpNumber] = useState('');
   const [empName, setEmpName] = useState('');
   const [empShift, setEmpShift] = useState('Matutino');
 
-  // APIs de SheetDB
+  // APIs
   const API_URL = 'https://sheetdb.io/api/v1/a174kd16wc31r'; // Inventario
-  const HISTORY_API_URL = 'https://sheetdb.io/api/v1/artssu78fayhd'; // Historial de Pedidos
+  const HISTORY_API_URL = 'https://sheetdb.io/api/v1/artssu78fayhd'; // Historial
 
-  // --- CONEXIÓN A LAS APIs (SHEETDB) ---
+  // --- Carga Inicial ---
   useEffect(() => {
     const fetchAllData = async () => {
       try {
-        // Cargar Inventario
         const resInv = await fetch(API_URL);
         const dataInv = await resInv.json();
         const formattedInv = dataInv.map(p => ({
@@ -166,39 +163,28 @@ const App = () => {
         }));
         setProducts(formattedInv);
 
-        // Cargar Historial
         const resHist = await fetch(HISTORY_API_URL);
         const dataHist = await resHist.json();
         const formattedHist = dataHist.map(h => {
-          let parsedItems = [];
-          try { 
-            parsedItems = JSON.parse(h.articulos); 
-          } catch(e) { 
-            parsedItems = [{ name: h.articulos, quantity: 1, price: 0, code: 'N/A' }]; 
-          }
-          const empParts = (h.empleado || "").split('|');
-          
           return {
             id: h.id_vale,
             date: h.fecha,
-            empName: empParts[0] || 'Desconocido',
-            empNumber: empParts[1] || '',
-            empShift: empParts[2] || '',
+            empName: h.empleado,
+            empNumber: 'N/A', 
+            empShift: '',
             total: parseFloat(h.total) || 0,
-            items: parsedItems,
+            items: [{ name: h.articulos, quantity: 1, price: 0, code: 'N/A' }],
             type: 'Aprobado'
           };
         });
-        // Mostrar historial con el más reciente primero
         setSales(formattedHist.reverse());
 
         setIsLoading(false);
       } catch (err) {
-        notify("Error al conectar con la base de datos", "error");
+        console.error(err);
         setIsLoading(false);
       }
     };
-
     fetchAllData();
   }, []);
 
@@ -221,7 +207,6 @@ const App = () => {
     resetUI();
   };
 
-  // --- Lógica de Accesos ---
   const handleAdminLogin = (e) => {
     e.preventDefault();
     if (username === 'admin' && password === 'admin123') {
@@ -250,7 +235,6 @@ const App = () => {
     }
   };
 
-  // --- Funciones de Comprobante ---
   const handleDownloadImage = (order) => {
     setSelectedOrderForTicket(order);
     notify("Generando imagen...", "success");
@@ -281,10 +265,9 @@ const App = () => {
       notify("No hay ventas para exportar", "error");
       return;
     }
-    let csv = "ID Venta,Fecha,No. Empleado,Nombre Empleado,Turno,Total,Articulos\n";
+    let csv = "ID Venta,Fecha,Empleado,Total,Articulos\n";
     sales.forEach(sale => {
-      const itemsStr = sale.items.map(i => `${i.quantity}x ${i.name}`).join(" + ");
-      csv += `"${sale.id}","${sale.date}","${sale.empNumber}","${sale.empName}","${sale.empShift}","$${sale.total}","${itemsStr}"\n`;
+      csv += `"${sale.id}","${sale.date}","${sale.empName}","$${sale.total}","${sale.items[0]?.name || ''}"\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -295,7 +278,6 @@ const App = () => {
     notify("Descargando reporte...");
   };
 
-  // --- Subida y Descarga de CSV Masivo (Inventario) ---
   const downloadCSVTemplate = () => {
     const csv = "codigo,nombre,precio,stock,categoria\nBIC-EX01,Articulo de Ejemplo,15.50,100,Stationery\n";
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -304,55 +286,42 @@ const App = () => {
     a.href = url;
     a.download = `Plantilla_Carga_Masiva.csv`;
     a.click();
-    notify("Plantilla descargada");
   };
 
   const handleCSVUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target.result;
       const lines = text.split('\n');
       const importedProducts = [];
-      
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
-        
         const parts = line.split(',');
         if (parts.length >= 5) {
           importedProducts.push({
-            id: Date.now() + i, 
-            code: parts[0].trim(),
-            name: parts[1].trim(),
-            price: parseFloat(parts[2]) || 0,
-            stock: parseInt(parts[3]) || 0,
-            category: parts[4].trim(),
-            color: COLORS.bicOrange,
-            image: null
+            id: Date.now() + i, code: parts[0].trim(), name: parts[1].trim(),
+            price: parseFloat(parts[2]) || 0, stock: parseInt(parts[3]) || 0,
+            category: parts[4].trim(), color: COLORS.bicOrange, image: null
           });
         }
       }
-      
       if (importedProducts.length > 0) {
         setProducts(prev => [...importedProducts, ...prev]);
-        notify(`Se importaron ${importedProducts.length} productos correctamente.`);
-      } else {
-        notify("El archivo está vacío o no tiene el formato correcto.", "error");
+        notify(`Se importaron ${importedProducts.length} productos.`);
       }
       e.target.value = null;
     };
     reader.readAsText(file);
   };
 
-  // --- Integración Segura con Cloudinary API ---
+  // --- Subida a Cloudinary ---
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Mostrar preview local inmediatamente
     const reader = new FileReader();
     reader.onloadend = () => setImagePreview(reader.result);
     reader.readAsDataURL(file); 
@@ -366,7 +335,6 @@ const App = () => {
       const apiSecret = 'O5Jui-cALz43axjlFOkAL4FJ4HU';
       const timestamp = Math.round((new Date).getTime() / 1000);
 
-      // Generar firma SHA-1 (Requisito de seguridad de Cloudinary)
       const str = `timestamp=${timestamp}${apiSecret}`;
       const buffer = new TextEncoder().encode(str);
       const hashBuffer = await crypto.subtle.digest('SHA-1', buffer);
@@ -387,13 +355,13 @@ const App = () => {
       
       if (data.secure_url) {
         setImagePreview(data.secure_url);
-        notify("Imagen guardada exitosamente", "success");
+        notify("Imagen optimizada y guardada", "success");
       } else {
-        throw new Error("Respuesta inválida de Cloudinary");
+        notify("Error procesando imagen en la nube", "error");
       }
     } catch (error) {
       console.error(error);
-      notify("Error al subir la imagen", "error");
+      notify("Error en la conexión a la nube", "error");
     } finally {
       setIsUploadingImage(false);
     }
@@ -408,16 +376,10 @@ const App = () => {
   }, [products, searchTerm, selectedCategory]);
 
   const addToCart = (product) => {
-    if (product.stock <= 0) {
-      notify("Producto agotado", "error");
-      return;
-    }
+    if (product.stock <= 0) return notify("Producto agotado", "error");
     const existingItem = cart.find(item => item.id === product.id);
     if (existingItem) {
-      if (existingItem.quantity >= product.stock) {
-        notify("Límite de stock alcanzado", "error");
-        return;
-      }
+      if (existingItem.quantity >= product.stock) return notify("Límite de stock alcanzado", "error");
       setCart(cart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
     } else {
       setCart([...cart, { ...product, quantity: 1 }]);
@@ -439,7 +401,6 @@ const App = () => {
   const tax = subtotal * 0.16;
   const total = subtotal + tax;
 
-  // Empleado BIC envía su pedido
   const handleEmployeeSubmitOrder = () => {
     if (cart.length === 0) return;
     const newOrder = {
@@ -453,7 +414,6 @@ const App = () => {
       status: 'Pendiente'
     };
     
-    // Descontar inventario temporalmente (vista optimista local)
     setProducts(products.map(p => {
       const cartItem = cart.find(item => item.id === p.id);
       return cartItem ? { ...p, stock: p.stock - cartItem.quantity } : p;
@@ -462,74 +422,65 @@ const App = () => {
     setPendingOrders([newOrder, ...pendingOrders]);
     setCart([]);
     setIsCartOpenMobile(false);
-    
-    // Mostramos el modal de éxito con opción a descargar imagen
     setSelectedOrderForTicket(newOrder);
     setShowSuccessModal(true);
   };
 
-  // Administrador aprueba pedido (Actualiza SheetDB - Ambas Bases)
   const handleApproveOrder = async (order) => {
-    // 1. Crear el objeto de historial para la nueva API
+    // Transformar items a Texto Simple para evitar que SheetDB colapse con JSONs
+    const articulosTexto = order.items.map(it => `${it.quantity}x ${it.name}`).join(' | ');
+
     const historyRecord = {
       id_vale: order.id,
       fecha: new Date().toLocaleString(),
-      empleado: `${order.empName}|${order.empNumber}|${order.empShift}`, // Empaquetamos info
+      empleado: `${order.empName} (ID: ${order.empNumber} - ${order.empShift})`,
       total: order.total,
-      articulos: JSON.stringify(order.items)
+      articulos: articulosTexto
     };
 
-    // 2. Descontar stock del inventario (API principal)
+    // Actualizar Inventario
     for (const item of order.items) {
       const prod = products.find(p => p.id === item.id);
       if (prod) {
-        // En nuestro local optimista ya se descontó, calculamos contra la orden
-        const newStock = prod.stock; 
         try {
           await fetch(`${API_URL}/codigo/${item.code}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stock: newStock })
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stock: prod.stock })
           });
         } catch (e) {
-          console.error("Error al actualizar inventario en SheetDB");
+          console.error(e);
         }
       }
     }
 
-    // 3. Subir el vale al Historial de la nueva API
+    // Actualizar Historial
     try {
-      await fetch(HISTORY_API_URL, {
+      const resp = await fetch(HISTORY_API_URL, {
         method: 'POST',
         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: [historyRecord] })
       });
+      const respData = await resp.json();
+      if(respData.created) {
+        notify("Pedido autorizado y guardado en Historial.", "success");
+      } else {
+        notify("Pedido autorizado, revisa la base de datos", "success");
+      }
     } catch(e) {
-      console.error("Error al guardar en el historial", e);
+      notify("Error conectando al historial SheetDB", "error");
     }
     
-    // 4. Actualizar Estado Local para UI
     const saleRecord = { 
-      id: order.id, 
-      date: historyRecord.fecha, 
-      empName: order.empName,
-      empNumber: order.empNumber,
-      empShift: order.empShift,
-      total: order.total,
-      items: order.items,
-      type: 'Aprobado' 
+      id: order.id, date: historyRecord.fecha, empName: historyRecord.empleado,
+      empNumber: order.empNumber, empShift: order.empShift, total: order.total,
+      items: order.items, type: 'Aprobado' 
     };
 
     setSales([saleRecord, ...sales]);
     setPendingOrders(pendingOrders.filter(o => o.id !== order.id));
-    
-    notify(`Pedido #${order.id} autorizado y guardado en historial.`, "success");
-    setSelectedOrderForTicket(saleRecord);
-    // Agregamos un ligero retraso mayor para permitir que el DOM renderice el código de barras antes de imprimir
-    setTimeout(() => window.print(), 500);
   };
 
-  // Administrador rechaza pedido
   const handleRejectOrder = (order) => {
     const restoredProducts = [...products];
     order.items.forEach(item => {
@@ -541,10 +492,9 @@ const App = () => {
     notify(`Pedido #${order.id} rechazado.`, "error");
   };
 
-  // Administrador gestiona inventario (Guardado persistente en nube)
   const saveProduct = async (e) => {
     e.preventDefault();
-    if (isUploadingImage) return;
+    if (isUploadingImage) return notify("Espera a que suba la imagen", "error");
 
     const formData = new FormData(e.target);
     const productData = {
@@ -555,29 +505,25 @@ const App = () => {
       category: formData.get('category'),
       stock: parseInt(formData.get('stock')),
       color: editingProduct ? editingProduct.color : COLORS.bicOrange,
-      image: imagePreview
+      image: imagePreview || ''
     };
 
-    // Mapeo específico para guardar en tu Excel mediante la API
     const sheetPayload = {
       codigo: productData.code,
       nombre: productData.name,
       precio: productData.price,
       stock: productData.stock,
       categoria: productData.category,
-      image: productData.image || ''
+      image: productData.image
     };
 
-    // Actualización local
     if (editingProduct) {
       setProducts(products.map(p => p.id === editingProduct.id ? productData : p));
     } else {
       setProducts([productData, ...products]);
     }
-
     setIsModalOpen(false);
 
-    // Actualización persistente en SheetDB
     try {
       if (editingProduct) {
         await fetch(`${API_URL}/codigo/${editingProduct.code}`, {
@@ -592,12 +538,11 @@ const App = () => {
           body: JSON.stringify({ data: [sheetPayload] })
         });
       }
-      notify("Inventario guardado en la nube exitosamente", "success");
+      notify("Se guardó el artículo en SheetDB", "success");
     } catch (err) {
       console.error(err);
-      notify("Error al sincronizar con la base de datos", "error");
+      notify("El artículo se modificó localmente (Error SheetDB)", "error");
     }
-
     setEditingProduct(null);
     setImagePreview(null);
   };
@@ -615,7 +560,6 @@ const App = () => {
     );
   };
 
-  // Plantilla del Comprobante (Vale con Códigos de Barras)
   const DeliveryNote = ({ order }) => {
     const isApproved = order.type === 'Aprobado';
     return (
@@ -632,7 +576,7 @@ const App = () => {
           <div>
             <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Información Solicitante</p>
             <p className="text-xl font-bold uppercase">{order.empName}</p>
-            <p className="font-bold text-gray-600">ID: {order.empNumber} • Turno: {order.empShift}</p>
+            <p className="font-bold text-gray-600">Turno: {order.empShift || 'Desconocido'}</p>
           </div>
           <div className="text-right flex flex-col justify-end">
             <p className="font-bold">BIC PLANTA SALTILLO</p>
@@ -652,7 +596,7 @@ const App = () => {
             <tbody className="divide-y divide-gray-100">
               {order.items && order.items.map((it, i) => (
                 <tr key={i} className="text-sm font-bold">
-                  <td className="py-3 px-2"><ProductBarcode value={it.code} /></td>
+                  <td className="py-3 px-2"><ProductBarcode value={it.code || 'N/A'} /></td>
                   <td className="py-3 px-2 uppercase">{it.name}</td>
                   <td className="py-3 px-2 text-center font-black text-lg">{it.quantity}</td>
                   <td className="py-3 px-2 text-right font-black text-black">${(it.price * it.quantity).toFixed(2)}</td>
@@ -797,23 +741,31 @@ const App = () => {
   // ==========================================
   // RENDER: PANTALLAS DE ACCESO (SELECCIÓN / LOGIN)
   // ==========================================
-  if (appMode === 'selection' || appMode.startsWith('login')) {
+  if (appMode.startsWith('selection') || appMode.startsWith('login')) {
     return (
       <div className="flex h-screen bg-[#F3EDEC]">
         <style>{globalStyles}</style>
         <Toast />
         
         {/* Lado Izquierdo - Banner */}
-        <div className="hidden lg:block lg:w-1/2 h-full relative bg-white border-r border-gray-200">
+        <div className="hidden lg:flex lg:w-1/2 h-full relative bg-[#035AE5] items-center justify-center border-r border-gray-200">
           <img 
             src="Banner.webp" 
-            alt="Banner" 
-            className="absolute inset-0 w-full h-full object-cover"
-            onError={(e) => { e.target.style.display = 'none'; }}
+            alt="Banner Planta Saltillo" 
+            className="absolute inset-0 w-full h-full object-cover opacity-50 mix-blend-overlay"
+            onError={(e) => { 
+              // Fallback visual (Oficina Corporativa)
+              e.target.src = 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1000&q=80'; 
+            }}
           />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#035AE5]/90 to-transparent"></div>
+          <div className="z-10 text-center text-white p-12">
+            <h1 className="text-5xl font-black uppercase tracking-tighter mb-4 drop-shadow-lg">Planta Saltillo</h1>
+            <p className="text-xl font-bold opacity-90 uppercase tracking-widest italic drop-shadow-md">Suministros de Oficina</p>
+          </div>
         </div>
 
-        {/* Lado Derecho - Formulario de Interacción */}
+        {/* Lado Derecho - Formulario */}
         <div className="w-full lg:w-1/2 flex items-center justify-center p-6 relative">
           
           {appMode !== 'selection' && (
@@ -932,7 +884,7 @@ const App = () => {
   }
 
   // ==========================================
-  // RENDER: PERFIL EMPLEADO BIC (CLIENTE HACIENDO PEDIDO)
+  // RENDER: PERFIL EMPLEADO BIC (CLIENTE)
   // ==========================================
   if (appMode === 'employee') {
     return (
@@ -941,7 +893,6 @@ const App = () => {
         <Toast />
         <div className="ticket-wrapper">{selectedOrderForTicket && <DeliveryNote order={selectedOrderForTicket} />}</div>
         
-        {/* Cabecera del Empleado */}
         <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between z-30 shrink-0 shadow-sm">
           <LogoBIC size="small" />
           <div className="flex items-center gap-6">
@@ -960,13 +911,11 @@ const App = () => {
             <CatalogGrid />
           </main>
           
-          {/* Panel Lateral Carrito Cliente (Desktop) */}
           <aside className="hidden lg:block w-96 border-l border-gray-200 shadow-[-10px_0_20px_rgba(0,0,0,0.03)] z-20">
-             <CartContent onCheckout={handleEmployeeSubmitOrder} btnText="PEDIDO" />
+             <CartContent onCheckout={handleEmployeeSubmitOrder} btnText="ENVIAR PEDIDO" />
           </aside>
         </div>
         
-        {/* Botón Flotante y Modal Carrito Cliente (Móvil) */}
         <div className="lg:hidden">
           {cart.length > 0 && (
             <button onClick={() => setIsCartOpenMobile(true)} className="fixed bottom-6 right-6 text-black w-16 h-16 rounded-full shadow-2xl flex items-center justify-center z-40 active:scale-90 transition-transform border-4 border-white" style={{ backgroundColor: COLORS.bicOrange }}>
@@ -983,13 +932,12 @@ const App = () => {
                   <h2 className="font-bold text-lg px-2">Tu Pedido</h2>
                   <button onClick={() => setIsCartOpenMobile(false)} className="p-2 bg-gray-100 rounded-full"><X size={20}/></button>
                 </div>
-                <div className="flex-1 overflow-y-auto"><CartContent onCheckout={handleEmployeeSubmitOrder} btnText="PEDIDO" /></div>
+                <div className="flex-1 overflow-y-auto"><CartContent onCheckout={handleEmployeeSubmitOrder} btnText="ENVIAR PEDIDO" /></div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Modal de Éxito Limpio */}
         {showSuccessModal && selectedOrderForTicket && (
           <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm no-print">
             <div className="bg-white p-10 rounded-[40px] shadow-2xl max-w-md w-full text-center">
@@ -1038,7 +986,6 @@ const App = () => {
       <Toast />
       <div className="ticket-wrapper">{selectedOrderForTicket && <DeliveryNote order={selectedOrderForTicket} />}</div>
 
-      {/* BARRA LATERAL (Sidebar Desktop) */}
       <aside className="hidden md:flex w-20 lg:w-64 bg-white border-r border-gray-200 flex-col z-30 shadow-[5px_0_20px_rgba(0,0,0,0.02)] transition-all duration-300">
         <div className="h-16 flex items-center justify-center lg:justify-start lg:px-6 border-b border-gray-100 shrink-0">
           <div className="lg:hidden"><LogoBIC size="small" showText={false} /></div>
@@ -1065,9 +1012,7 @@ const App = () => {
         </div>
       </aside>
 
-      {/* CONTENIDO PRINCIPAL (ADMIN) */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* Header Mobile (Solo visible si no hay sidebar lg) */}
         <header className="md:hidden h-16 bg-white border-b border-gray-200 px-4 flex items-center justify-between shrink-0 z-30">
           <LogoBIC size="small" />
           <button onClick={handleLogout} className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center text-red-500 font-bold"><LogOut size={14}/></button>
@@ -1076,7 +1021,6 @@ const App = () => {
         <div className="flex flex-1 overflow-hidden">
           <main className="flex-1 overflow-y-auto">
             
-            {/* VISTA: DASHBOARD */}
             {adminView === 'dashboard' && (
               <div className="p-6 lg:p-10 space-y-6">
                 <h2 className="text-2xl font-bold text-black mb-6">Resumen del Día</h2>
@@ -1119,7 +1063,7 @@ const App = () => {
                             <div className="w-10 h-10 rounded-full bg-[#F3EDEC] flex items-center justify-center text-black"><Check size={16} /></div>
                             <div>
                               <p className="text-sm font-bold text-black">Pedido de {s.empName}</p>
-                              <p className="text-xs text-gray-400 font-bold">No. {s.empNumber} • {s.empShift}</p>
+                              <p className="text-xs text-gray-400 font-bold">{s.empNumber}</p>
                             </div>
                           </div>
                           <span className="font-bold text-[#035AE5]">${s.total.toFixed(2)}</span>
@@ -1131,7 +1075,6 @@ const App = () => {
               </div>
             )}
 
-            {/* VISTA: INVENTARIO */}
             {adminView === 'inventory' && (
               <div className="p-6 lg:p-10">
                 <div className="flex justify-between items-center mb-8">
@@ -1276,13 +1219,12 @@ const App = () => {
                             <td className="p-4 text-sm font-bold text-gray-500">{sale.date}</td>
                             <td className="p-4">
                               <p className="font-bold text-sm text-black">{sale.empName}</p>
-                              <p className="text-[10px] font-bold text-gray-400">No. {sale.empNumber}</p>
+                              <p className="text-[10px] font-bold text-gray-400">{sale.empNumber}</p>
                             </td>
                             <td className="p-4 text-right">
                                <span className="font-bold text-[#035AE5] block">${sale.total.toFixed(2)}</span>
                                <div className="flex justify-end gap-2 mt-2">
                                   <button onClick={() => handleDownloadImage(sale)} className="p-2 bg-blue-50 text-[#035AE5] rounded-lg hover:bg-blue-100" title="Descargar Imagen"><Download size={14}/></button>
-                                  {/* Eliminado el botón imprimir como fue solicitado */}
                                </div>
                             </td>
                           </tr>
