@@ -149,6 +149,11 @@ const App = () => {
     setTimeout(() => setNotification(null), 5000);
   }, []);
 
+  const resetUI = () => {
+    setLoginForm({ user: '', pass: '', empNum: '', empName: '', empShift: 'Matutino' });
+    setLoginError('');
+  };
+
   // --- AUTENTICACIÓN ANÓNIMA SILENCIOSA ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -344,6 +349,16 @@ const App = () => {
       e.target.value = null;
     };
     reader.readAsText(file);
+  };
+
+  const downloadCSVTemplate = () => {
+    const csv = "code,name,price,stock,category\nBIC-01,PLUMA AZUL,12.50,100,Stationery\n";
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Plantilla_Inventario_BIC.csv';
+    a.click();
   };
 
   const handleDownloadImage = (order) => {
@@ -818,7 +833,7 @@ const App = () => {
                           <span className="text-2xl font-black text-black">${order.total.toFixed(2)}</span>
                         </div>
                         <div className="p-5 flex-1 flex flex-col">
-                           <ul className="space-y-3 mb-6">
+                           <ul className="space-y-3 mb-8">
                             {order.items.map((it, i) => (
                               <li key={i} className="flex justify-between items-center text-sm font-bold uppercase">
                                 <span className="text-gray-600"><span className="text-[#035AE5] bg-blue-50 px-1.5 py-0.5 rounded mr-2">{it.quantity}x</span> {it.name}</span>
@@ -826,9 +841,9 @@ const App = () => {
                               </li>
                             ))}
                            </ul>
-                           <div className="flex gap-3 mt-auto">
-                             <button onClick={() => handleRejectOrder(order)} className="flex-1 py-3 rounded-xl font-bold text-[#DB054B] bg-white border-2 border-[#DB054B] hover:bg-red-50 transition-colors flex items-center justify-center gap-2">Rechazar</button>
-                             <button onClick={() => handleApproveOrder(order)} className="flex-1 py-3 rounded-xl font-bold text-white bg-[#035AE5] shadow-md hover:brightness-110 transition-all flex items-center justify-center gap-2"><Check size={18} /> Autorizar</button>
+                           <div className="flex gap-4 mt-auto">
+                             <button onClick={() => handleRejectOrder(order)} className="flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-[#DB054B] bg-white border-2 border-[#DB054B] hover:bg-red-50 transition-colors flex items-center justify-center gap-2 text-xs">Rechazar</button>
+                             <button onClick={() => handleApproveOrder(order)} className="flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-white bg-[#035AE5] hover:scale-[1.02] shadow-xl transition-all flex items-center justify-center gap-2 text-xs"><Check size={18} /> Autorizar</button>
                            </div>
                         </div>
                       </div>
@@ -838,7 +853,7 @@ const App = () => {
               </div>
             ) : adminView === 'history' && appMode === 'admin' ? (
               <div className="space-y-6">
-                <div className="flex justify-between items-center mb-8"><h2 className="text-2xl font-bold text-black">Historial Aprobado</h2><button onClick={downloadReport} className="bg-white border border-gray-200 text-black px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-all"><Download size={18} /> Exportar CSV</button></div>
+                <div className="flex justify-between items-center mb-8"><h2 className="text-2xl font-bold text-black">Historial Aprobado</h2><button onClick={downloadReport} className="bg-white border border-gray-200 text-black px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-all"><Download size={18} /> Exportar CSV</button></div>
                 {sales.length === 0 ? (
                   <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-16 flex flex-col items-center justify-center text-center"><div className="bg-[#F3EDEC] p-4 rounded-full text-gray-400 mb-4"><History size={32} /></div><p className="font-bold text-black text-lg">Aún no hay aprobaciones</p></div>
                 ) : (
